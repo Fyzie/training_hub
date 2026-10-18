@@ -1,0 +1,86 @@
+import { NextResponse } from 'next/server';
+import { dataStore } from '@/lib/data-store';
+import { jobRunner } from '@/lib/job-runner';
+import { TrainingJob } from '@/lib/types';
+import { getRealGpuDeviceString } from '@/lib/hardware-telemetry';
+
+export async function GET() {
+  const jobs = dataStore.getJobs();
+  return NextResponse.json(jobs);
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+
+    if (!body.name || !body.datasetId) {
+      return NextResponse.json({ error: 'Job name and dataset are required' }, { status: 400 });
+    }
+
+    const datasets = dataStore.getDatasets();
+    const dataset = datasets.find((d) => d.id === body.datasetId);
+    const realGpu = getRealGpuDeviceString();
+    const targetDevice = body.device || 'cuda:0';
+
+    const newJob: TrainingJob = {
+      id: `job-${Date.now().toString(36)}`,
+      name: body.name.trim(),
+      category: body.category || 'vision',
+      taskType: body.taskType || 'YOLOv8 Detection',
+      datasetId: body.datasetId,
+      datasetName: dataset ? dataset.name : (body.datasetName || 'Custom Dataset'),
+      status: 'queued',
+      progressPercent: 0,
+      currentEpoch: 0,
+      totalEpochs: parseInt(body.epochs) || 50,
+      batchSize: parseInt(body.batchSize) || 16,
+      learningRate: parseFloat(body.learningRate) || 0.001,
+      optimizer: body.optimizer || 'AdamW',
+      device: targetDevice,
+      deviceName: realGpu,
+      submittedBy: body.submittedBy || 'ML Engineer',
+      submittedById: body.submittedById || '',
+      submittedAt: new Date().toISOString(),
+      metricsHistory: [],
+      logs: [
+        `[${new Date().toLocaleTimeString()}] Job "${body.name}" submitted to host queue.`,
+        `[${new Date().toLocaleTimeString()}] Target Execution Hardware: Host Server ${targetDevice} (${realGpu})`,
+        `[${new Date().toLocaleTimeString()}] Configured ${body.epochs || 50} epochs, batch size ${body.batchSize || 16}, lr ${body.learningRate || 0.001}`
+      ],
+      hyperparameters: {
+        imgSize: body.imgSize || 640,
+        augmentations: body.augmentations || 'default',
+        pretrained: body.pretrained ?? true,
+        model_architecture: body.hyperparameters?.model_architecture || (body.taskType?.includes('Seg') ? 'RFDETRSegSmall' : 'RFDETRSmall'),
+        backbone: body.hyperparameters?.model_architecture || (body.taskType?.includes('Seg') ? 'RF-DETR Swin-Small' : 'RF-DETR ResNet-50'),
+        ...(body.hyperparameters || {})
+      },
+      description: body.description || ''
+    };
+
+    dataStore.addJob(newJob);
+
+    // Prompt the scheduler
+    jobRunner.tick();
+
+    return NextResponse.json(newJob, { status: 201 });
+  } catch (err) {
+    console.error('Job creation error:', err);
+    return NextResponse.json({ error: 'Failed to create training job' }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  try {
+    const result = dataStore.clearFailedAndCancelledJobs();
+    return NextResponse.json({
+      success: true,
+      removedCount: result.removedCount,
+      remaining: result.remaining
+    });
+  } catch (err) {
+    console.error('Failed to clear failed and cancelled jobs:', err);
+    return NextResponse.json({ error: 'Failed to clear jobs' }, { status: 500 });
+  }
+}
+

@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+powershell.cmd
+
+# Decoupled sensitive company data & local storage (persisted in ../storage-hub)
+/data/
+/public/uploads/
+*.db
+/mlruns/
+cloudflared.exe
+*.log
