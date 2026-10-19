@@ -161,7 +161,7 @@ function getLocalIp(): string {
 
   if (preferred) return preferred.address;
   if (candidates.length > 0) return candidates[0].address;
-  return '192.168.8.105';
+  return '127.0.0.1';
 }
 
 function getDiskMetrics() {

@@ -24,9 +24,9 @@ interface TunnelModalProps {
 
 export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalProps) {
   const [networkInfo, setNetworkInfo] = useState({
-    localIp: '192.168.8.105',
+    localIp: '127.0.0.1',
     port: 3000,
-    lanUrl: 'http://192.168.8.105:3000',
+    lanUrl: 'http://localhost:3000',
     localhostUrl: 'http://localhost:3000',
     tunnelUrl: '',
     isActive: false,

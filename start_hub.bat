@@ -15,14 +15,25 @@ echo.
 echo [*] Checking Python environment...
 set "PYTHON_CMD="
 
-if exist "%USERPROFILE%\anaconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%USERPROFILE%\anaconda3\envs\py-gpu\python.exe"
-if exist "C:\Users\Hafizi\anaconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=C:\Users\Hafizi\anaconda3\envs\py-gpu\python.exe"
+if defined PYTHON_EXE if exist "%PYTHON_EXE%" set "PYTHON_CMD=%PYTHON_EXE%"
+if not defined PYTHON_CMD if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" set "PYTHON_CMD=%CONDA_PREFIX%\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\anaconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%USERPROFILE%\anaconda3\envs\py-gpu\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\miniconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%USERPROFILE%\miniconda3\envs\py-gpu\python.exe"
 
 if not defined PYTHON_CMD (
-    where python >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
-        for /f "tokens=*" %%i in ('where python') do (
-            if not defined PYTHON_CMD set "PYTHON_CMD=%%i"
+    for /d %%u in ("%SystemDrive%\Users\*") do (
+        if not defined PYTHON_CMD if exist "%%u\anaconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%%u\anaconda3\envs\py-gpu\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\miniconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%%u\miniconda3\envs\py-gpu\python.exe"
+    )
+)
+
+if not defined PYTHON_CMD (
+    for /f "tokens=*" %%i in ('where python 2^>nul') do (
+        if not defined PYTHON_CMD (
+            echo "%%i" | findstr /i "WindowsApps" >nul
+            if errorlevel 1 (
+                set "PYTHON_CMD=%%i"
+            )
         )
     )
 )
@@ -32,7 +43,12 @@ if not defined PYTHON_CMD (
     if exist "%USERPROFILE%\miniconda3\python.exe" set "PYTHON_CMD=%USERPROFILE%\miniconda3\python.exe"
     if exist "C:\ProgramData\anaconda3\python.exe" set "PYTHON_CMD=C:\ProgramData\anaconda3\python.exe"
     if exist "C:\anaconda3\python.exe" set "PYTHON_CMD=C:\anaconda3\python.exe"
-    if exist "C:\Users\Hafizi\anaconda3\python.exe" set "PYTHON_CMD=C:\Users\Hafizi\anaconda3\python.exe"
+    for /d %%u in ("%SystemDrive%\Users\*") do (
+        if not defined PYTHON_CMD if exist "%%u\anaconda3\python.exe" set "PYTHON_CMD=%%u\anaconda3\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\miniconda3\python.exe" set "PYTHON_CMD=%%u\miniconda3\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python311\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python311\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python310\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python310\python.exe"
+    )
 )
 
 if not defined PYTHON_CMD (

@@ -397,7 +397,7 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
             </div>
           </div>
           <div className="pt-4 border-t border-slate-100 text-[11px] text-slate-400 flex items-center justify-between">
-            <span className="truncate mr-2">Gateway: {metrics?.specs?.gateway || (metrics?.network?.localIp ? `${metrics.network.localIp}:3000` : '192.168.8.105:3000')}</span>
+            <span className="truncate mr-2">Gateway: {metrics?.specs?.gateway || (metrics?.network?.localIp ? `${metrics.network.localIp}:3000` : 'localhost:3000')}</span>
             {user && (
               <button
                 onClick={onOpenTunnel}

@@ -9,7 +9,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from training_scripts.rfdetr_segmentation.main import generate_val_comparison_collage
 
-STORAGE_HUB_DIR = Path("D:/Github/storage-hub")
+STORAGE_HUB_DIR = Path(os.environ.get("STORAGE_HUB_PATH", str(REPO_ROOT.parent / "storage-hub")))
+if not STORAGE_HUB_DIR.exists():
+    STORAGE_HUB_DIR = REPO_ROOT / "storage-hub"
 dataset_dir = str(STORAGE_HUB_DIR / "uploads" / "datasets" / "test_2-hnkdh-v1")
 job_dir = STORAGE_HUB_DIR / "uploads" / "runs" / "job-mvdqcqve"
 weights_dir = job_dir / "weights"

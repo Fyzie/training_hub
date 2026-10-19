@@ -137,6 +137,7 @@ def download_dataset(api_key: str, workspace: str, project: str, version: int, f
             target_dir = str(storage_hub_dir / "uploads" / "datasets" / f"{project}-v{version}")
 
         dest_path = Path(target_dir)
+        dest_path.mkdir(parents=True, exist_ok=True)
 
         # Check if already downloaded with valid annotations
         train_annot = dest_path / "train" / "_annotations.coco.json"
@@ -153,6 +154,12 @@ def download_dataset(api_key: str, workspace: str, project: str, version: int, f
 
         metadata = inspect_dataset_directory(actual_dir, fallback_splits=fallback_splits)
 
+    norm_actual = str(actual_dir).replace("\\", "/")
+    if "/uploads/datasets/" in norm_actual:
+        web_file_path = "/uploads/datasets/" + norm_actual.split("/uploads/datasets/")[-1]
+    else:
+        web_file_path = f"/uploads/datasets/{actual_dir.name}"
+
     result = {
         "name": f"{project}-v{version}",
         "project": project,
@@ -161,7 +168,7 @@ def download_dataset(api_key: str, workspace: str, project: str, version: int, f
         "sampleCount": metadata["sampleCount"],
         "splits": metadata["splits"],
         "fileSizeMB": metadata["fileSizeMB"],
-        "filePath": str(actual_dir).replace("\\", "/"),
+        "filePath": web_file_path,
         "format": "coco"
     }
 

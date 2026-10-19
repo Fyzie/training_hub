@@ -66,18 +66,34 @@ export function getHostPythonExe(): string {
     path.join(homedir, 'miniconda3', 'bin', 'python'),
   ];
 
-  // Also test other user folders on the drive if current process runs as a service account
-  for (const userFolder of ['MachineLearning', 'Administrator', 'Hafizi']) {
-    if (userFolder.toLowerCase() !== hostUser.toLowerCase()) {
-      candidates.push(
-        `C:\\Users\\${userFolder}\\anaconda3\\envs\\py-gpu\\python.exe`,
-        `C:\\Users\\${userFolder}\\anaconda3\\python.exe`,
-        `C:\\Users\\${userFolder}\\miniconda3\\envs\\py-gpu\\python.exe`,
-        `C:\\Users\\${userFolder}\\AppData\\Local\\Programs\\Python\\Python310\\python.exe`,
-        `C:\\Users\\${userFolder}\\AppData\\Local\\Programs\\Python\\Python311\\python.exe`,
-        `C:\\Users\\${userFolder}\\AppData\\Local\\Programs\\Python\\Python38\\python.exe`
-      );
-    }
+  // Dynamically inspect any user directories under SystemDrive\Users (e.g., C:\Users)
+  if (process.platform === 'win32') {
+    try {
+      const systemDrive = process.env.SystemDrive || 'C:';
+      const usersDir = path.join(systemDrive, 'Users');
+      if (fs.existsSync(usersDir)) {
+        const userEntries = fs.readdirSync(usersDir, { withFileTypes: true });
+        for (const entry of userEntries) {
+          if (entry.isDirectory()) {
+            const uName = entry.name;
+            const uLower = uName.toLowerCase();
+            if (uLower !== hostUser.toLowerCase() && !['all users', 'default', 'default user', 'public'].includes(uLower)) {
+              candidates.push(
+                path.join(usersDir, uName, 'anaconda3', 'envs', 'py-gpu', 'python.exe'),
+                path.join(usersDir, uName, 'miniconda3', 'envs', 'py-gpu', 'python.exe'),
+                path.join(usersDir, uName, 'anaconda3', 'python.exe'),
+                path.join(usersDir, uName, 'miniconda3', 'python.exe'),
+                path.join(usersDir, uName, 'AppData', 'Local', 'Programs', 'Python', 'Python310', 'python.exe'),
+                path.join(usersDir, uName, 'AppData', 'Local', 'Programs', 'Python', 'Python311', 'python.exe'),
+                path.join(usersDir, uName, 'AppData', 'Local', 'Programs', 'Python', 'Python312', 'python.exe'),
+                path.join(usersDir, uName, 'AppData', 'Local', 'Programs', 'Python', 'Python39', 'python.exe'),
+                path.join(usersDir, uName, 'AppData', 'Local', 'Programs', 'Python', 'Python38', 'python.exe')
+              );
+            }
+          }
+        }
+      }
+    } catch {}
   }
 
   for (const c of candidates) {

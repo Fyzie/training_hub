@@ -14,6 +14,15 @@ function readJsonFile<T>(fileName: string, defaultData: T): T {
   ensureDir(DATA_DIR);
   const filePath = path.join(DATA_DIR, fileName);
   if (!fs.existsSync(filePath)) {
+    // Check if initial template exists in repo's local data/ directory
+    try {
+      const localDataPath = path.join(process.cwd(), 'data', fileName);
+      if (fs.existsSync(localDataPath)) {
+        const initialContent = fs.readFileSync(localDataPath, 'utf-8');
+        fs.writeFileSync(filePath, initialContent, 'utf-8');
+        return JSON.parse(initialContent) as T;
+      }
+    } catch {}
     fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2), 'utf-8');
     return defaultData;
   }
@@ -128,7 +137,31 @@ export const dataStore = {
   },
 
   // Datasets
-  getDatasets: (): Dataset[] => readJsonFile<Dataset[]>('datasets.json', []),
+  getDatasets: (): Dataset[] => {
+    const list = readJsonFile<Dataset[]>('datasets.json', []);
+    let modified = false;
+    list.forEach((d) => {
+      if (d.filePath) {
+        const norm = d.filePath.replace(/\\/g, '/');
+        const match = norm.match(/\/uploads\/datasets\/.*$/i);
+        if (match && d.filePath !== match[0]) {
+          d.filePath = match[0];
+          modified = true;
+        } else if (!norm.startsWith('/uploads/') && norm.includes('/datasets/')) {
+          const sub = norm.substring(norm.indexOf('/datasets/'));
+          const clean = '/uploads' + sub;
+          if (d.filePath !== clean) {
+            d.filePath = clean;
+            modified = true;
+          }
+        }
+      }
+    });
+    if (modified) {
+      writeJsonFile('datasets.json', list);
+    }
+    return list;
+  },
   saveDatasets: (datasets: Dataset[]) => writeJsonFile('datasets.json', datasets),
   addDataset: (dataset: Dataset) => {
     const datasets = dataStore.getDatasets();

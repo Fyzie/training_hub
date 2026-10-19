@@ -11,9 +11,33 @@ import { execSync } from 'child_process';
  * or expose company operational data.
  */
 
-export const STORAGE_HUB_DIR =
-  process.env.STORAGE_HUB_PATH ||
-  path.resolve(process.cwd(), '..', 'storage-hub');
+function resolveStorageHubDir(): string {
+  if (process.env.STORAGE_HUB_PATH) {
+    return path.resolve(process.env.STORAGE_HUB_PATH);
+  }
+  // 1. Sibling storage-hub (preferred)
+  const sibling = path.resolve(process.cwd(), '..', 'storage-hub');
+  if (fs.existsSync(/*turbopackIgnore: true*/ sibling)) {
+    return sibling;
+  }
+  try {
+    fs.mkdirSync(sibling, { recursive: true });
+    return sibling;
+  } catch {}
+
+  // 2. Fallback to an internal storage-hub directory inside current repo
+  const internal = path.resolve(process.cwd(), 'storage-hub');
+  try {
+    if (!fs.existsSync(/*turbopackIgnore: true*/ internal)) {
+      fs.mkdirSync(internal, { recursive: true });
+    }
+    return internal;
+  } catch {}
+
+  return process.cwd();
+}
+
+export const STORAGE_HUB_DIR = resolveStorageHubDir();
 
 export const DATA_DIR = path.join(STORAGE_HUB_DIR, 'data');
 export const UPLOADS_DIR = path.join(STORAGE_HUB_DIR, 'uploads');
@@ -79,71 +103,102 @@ ensureStorageHub();
  */
 export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): string {
   if (!rawPath && !datasetName) return '';
+  ensureStorageHub();
 
-  let candidate = (rawPath || '').trim();
+  let targetSubPath = '';
 
-  // 1. If it's a relative URL path like '/uploads/datasets/xyz', resolve to absolute on host
-  if (candidate.startsWith('/uploads/') || candidate.startsWith('uploads/')) {
-    const rel = candidate.replace(/^\/?uploads\/?/, '');
-    candidate = path.join(UPLOADS_DIR, rel);
-  }
-
-  // 2. If it's not absolute, resolve relative to datasets directory or cwd
-  if (!path.isAbsolute(candidate)) {
-    const fromDatasets = path.join(UPLOADS_DIR, 'datasets', candidate);
-    if (fs.existsSync(fromDatasets)) {
-      candidate = fromDatasets;
+  // Clean rawPath from any machine-specific drive letters or prefixes from previous computers
+  if (rawPath) {
+    const trimmed = rawPath.trim();
+    const match = trimmed.match(/uploads[\\/]datasets[\\/](.+)$/i);
+    if (match) {
+      targetSubPath = match[1].replace(/\\/g, '/');
+    } else if (trimmed.startsWith('/uploads/') || trimmed.startsWith('uploads/')) {
+      targetSubPath = trimmed.replace(/^\/?uploads\/?datasets\/?/i, '').replace(/\\/g, '/');
     } else {
-      candidate = path.resolve(process.cwd(), candidate);
+      targetSubPath = path.basename(trimmed);
     }
   }
 
-  // 3. If candidate exists on disk:
-  if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) {
-    const isZip = candidate.toLowerCase().endsWith('.zip') || (fs.statSync(/*turbopackIgnore: true*/ candidate).isFile() && candidate.includes('.zip'));
-    if (isZip) {
-      const extractedDir = candidate.replace(/\.zip$/i, '');
-      if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir) && fs.statSync(/*turbopackIgnore: true*/ extractedDir).isDirectory()) {
-        return extractedDir;
-      }
-      try {
-        fs.mkdirSync(extractedDir, { recursive: true });
-        execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${candidate}' -DestinationPath '${extractedDir}' -Force"`, {
-          timeout: 60000,
-          stdio: ['ignore', 'ignore', 'ignore']
-        });
-        if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir)) {
+  const searchCandidates: string[] = [];
+
+  // Check with targetSubPath
+  if (targetSubPath) {
+    searchCandidates.push(
+      path.join(UPLOADS_DIR, 'datasets', targetSubPath),
+      path.join(process.cwd(), 'public', 'uploads', 'datasets', targetSubPath),
+      path.join(process.cwd(), 'uploads', 'datasets', targetSubPath)
+    );
+    if (!targetSubPath.toLowerCase().endsWith('.zip')) {
+      searchCandidates.push(
+        path.join(UPLOADS_DIR, 'datasets', `${targetSubPath}.zip`),
+        path.join(process.cwd(), 'public', 'uploads', 'datasets', `${targetSubPath}.zip`)
+      );
+    }
+  }
+
+  // Check with datasetName
+  if (datasetName) {
+    const safeName = datasetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    searchCandidates.push(
+      path.join(UPLOADS_DIR, 'datasets', datasetName),
+      path.join(UPLOADS_DIR, 'datasets', `${datasetName}-v1`),
+      path.join(UPLOADS_DIR, 'datasets', safeName),
+      path.join(UPLOADS_DIR, 'datasets', `${safeName}-v1`),
+      path.join(process.cwd(), 'public', 'uploads', 'datasets', datasetName),
+      path.join(process.cwd(), 'public', 'uploads', 'datasets', `${datasetName}-v1`)
+    );
+  }
+
+  // Check if rawPath exists directly on current host
+  if (rawPath && path.isAbsolute(rawPath) && fs.existsSync(/*turbopackIgnore: true*/ rawPath)) {
+    searchCandidates.unshift(rawPath);
+  }
+
+  // Test direct candidates
+  for (const cand of searchCandidates) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ cand)) {
+      const isZip = cand.toLowerCase().endsWith('.zip') || (fs.statSync(/*turbopackIgnore: true*/ cand).isFile() && cand.includes('.zip'));
+      if (isZip) {
+        const extractedDir = cand.replace(/\.zip$/i, '');
+        if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir) && fs.statSync(/*turbopackIgnore: true*/ extractedDir).isDirectory()) {
           return extractedDir;
         }
-      } catch {
-        // Fallback: Python will also handle auto-extraction if zip passed
+        try {
+          fs.mkdirSync(extractedDir, { recursive: true });
+          execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${cand}' -DestinationPath '${extractedDir}' -Force"`, {
+            timeout: 60000,
+            stdio: ['ignore', 'ignore', 'ignore']
+          });
+          if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir)) {
+            return extractedDir;
+          }
+        } catch {}
       }
-    }
-    return candidate;
-  }
-
-  // 4. Try matching datasetName in UPLOADS_DIR/datasets
-  if (datasetName) {
-    const byName1 = path.join(UPLOADS_DIR, 'datasets', datasetName);
-    const byName2 = path.join(UPLOADS_DIR, 'datasets', `${datasetName}-v1`);
-    if (fs.existsSync(byName1)) return byName1;
-    if (fs.existsSync(byName2)) return byName2;
-  }
-
-  // 5. Try basename in UPLOADS_DIR/datasets
-  if (rawPath) {
-    const base = path.basename(rawPath);
-    const byBase = path.join(UPLOADS_DIR, 'datasets', base);
-    if (fs.existsSync(byBase)) {
-      if (byBase.toLowerCase().endsWith('.zip')) {
-        const extracted = byBase.replace(/\.zip$/i, '');
-        if (fs.existsSync(extracted)) return extracted;
-      }
-      return byBase;
+      return cand;
     }
   }
 
-  return candidate;
+  // Deep scan in datasets directories if not found by direct match
+  for (const rootDir of [path.join(UPLOADS_DIR, 'datasets'), path.join(process.cwd(), 'public', 'uploads', 'datasets')]) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ rootDir)) {
+      try {
+        const entries = fs.readdirSync(rootDir);
+        for (const entry of entries) {
+          const p = path.join(rootDir, entry);
+          if (targetSubPath && entry.toLowerCase().includes(targetSubPath.toLowerCase().replace(/\.zip$/i, ''))) {
+            return p;
+          }
+          if (datasetName && entry.toLowerCase().includes(datasetName.toLowerCase())) {
+            return p;
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Fallback to standard location under current storage hub datasets folder
+  return targetSubPath ? path.join(UPLOADS_DIR, 'datasets', targetSubPath) : path.join(UPLOADS_DIR, 'datasets');
 }
 
 

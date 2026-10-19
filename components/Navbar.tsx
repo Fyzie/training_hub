@@ -54,7 +54,7 @@ export function Navbar({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [tunnelActive, setTunnelActive] = useState(isTunnelActive ?? false);
-  const [hostIp, setHostIp] = useState(localIp || '192.168.8.105');
+  const [hostIp, setHostIp] = useState(localIp || (typeof window !== 'undefined' ? window.location.hostname : 'localhost'));
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [isApprovingId, setIsApprovingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

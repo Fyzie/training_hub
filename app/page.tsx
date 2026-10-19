@@ -15,6 +15,13 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [showTunnelModal, setShowTunnelModal] = useState<boolean>(false);
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [lanHost, setLanHost] = useState<string>('localhost:3000');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setLanHost(window.location.host);
+    }
+  }, []);
 
   useEffect(() => {
     // If no user logged in or fresh setup, prompt registration
@@ -87,7 +94,7 @@ function MainApp() {
                 onClick={() => setActiveTab('network')}
                 className="hover:text-blue-600 transition-colors cursor-pointer"
               >
-                LAN: 192.168.8.105:3000
+                LAN: {lanHost}
               </button>
               <span>•</span>
               <button
