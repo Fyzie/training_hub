@@ -15,18 +15,55 @@ echo.
 echo [*] Checking Python environment...
 set "PYTHON_CMD="
 
-if defined PYTHON_EXE if exist "%PYTHON_EXE%" set "PYTHON_CMD=%PYTHON_EXE%"
+:: Priority 0: Saved in .env.local from previous configuration
+if exist "%~dp0.env.local" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env.local") do (
+        if /i "%%A"=="PYTHON_EXE" if exist "%%B" set "PYTHON_CMD=%%B"
+    )
+)
+
+:: Priority 1: Environment variables or active conda prefix
+if not defined PYTHON_CMD if defined PYTHON_EXE if exist "%PYTHON_EXE%" set "PYTHON_CMD=%PYTHON_EXE%"
 if not defined PYTHON_CMD if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" set "PYTHON_CMD=%CONDA_PREFIX%\python.exe"
+
+:: Priority 2: py-gpu conda environment in user profile
 if not defined PYTHON_CMD if exist "%USERPROFILE%\anaconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%USERPROFILE%\anaconda3\envs\py-gpu\python.exe"
 if not defined PYTHON_CMD if exist "%USERPROFILE%\miniconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%USERPROFILE%\miniconda3\envs\py-gpu\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\.conda\envs\py-gpu\python.exe" set "PYTHON_CMD=%USERPROFILE%\.conda\envs\py-gpu\python.exe"
 
+:: Priority 3: Standard Anaconda/Miniconda base paths in user profile or root
+if not defined PYTHON_CMD if exist "%USERPROFILE%\anaconda3\python.exe" set "PYTHON_CMD=%USERPROFILE%\anaconda3\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\miniconda3\python.exe" set "PYTHON_CMD=%USERPROFILE%\miniconda3\python.exe"
+if not defined PYTHON_CMD if exist "C:\ProgramData\anaconda3\python.exe" set "PYTHON_CMD=C:\ProgramData\anaconda3\python.exe"
+if not defined PYTHON_CMD if exist "C:\anaconda3\python.exe" set "PYTHON_CMD=C:\anaconda3\python.exe"
+if not defined PYTHON_CMD if exist "C:\miniconda3\python.exe" set "PYTHON_CMD=C:\miniconda3\python.exe"
+
+:: Priority 4: User AppData Local Python installations
+if not defined PYTHON_CMD if exist "%USERPROFILE%\AppData\Local\Programs\Python\Python312\python.exe" set "PYTHON_CMD=%USERPROFILE%\AppData\Local\Programs\Python\Python312\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\AppData\Local\Programs\Python\Python311\python.exe" set "PYTHON_CMD=%USERPROFILE%\AppData\Local\Programs\Python\Python311\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\AppData\Local\Programs\Python\Python310\python.exe" set "PYTHON_CMD=%USERPROFILE%\AppData\Local\Programs\Python\Python310\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\AppData\Local\Programs\Python\Python39\python.exe" set "PYTHON_CMD=%USERPROFILE%\AppData\Local\Programs\Python\Python39\python.exe"
+if not defined PYTHON_CMD if exist "%USERPROFILE%\AppData\Local\Programs\Python\Python38\python.exe" set "PYTHON_CMD=%USERPROFILE%\AppData\Local\Programs\Python\Python38\python.exe"
+
+:: Priority 5: Common system Python paths
+if not defined PYTHON_CMD if exist "C:\Python312\python.exe" set "PYTHON_CMD=C:\Python312\python.exe"
+if not defined PYTHON_CMD if exist "C:\Python311\python.exe" set "PYTHON_CMD=C:\Python311\python.exe"
+if not defined PYTHON_CMD if exist "C:\Python310\python.exe" set "PYTHON_CMD=C:\Python310\python.exe"
+
+:: Priority 6: Scan all user directories for anaconda/miniconda/python
 if not defined PYTHON_CMD (
     for /d %%u in ("%SystemDrive%\Users\*") do (
         if not defined PYTHON_CMD if exist "%%u\anaconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%%u\anaconda3\envs\py-gpu\python.exe"
         if not defined PYTHON_CMD if exist "%%u\miniconda3\envs\py-gpu\python.exe" set "PYTHON_CMD=%%u\miniconda3\envs\py-gpu\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\anaconda3\python.exe" set "PYTHON_CMD=%%u\anaconda3\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\miniconda3\python.exe" set "PYTHON_CMD=%%u\miniconda3\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python312\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python312\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python311\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python311\python.exe"
+        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python310\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python310\python.exe"
     )
 )
 
+:: Priority 7: Fallback to system path python (ignoring WindowsApps store shims)
 if not defined PYTHON_CMD (
     for /f "tokens=*" %%i in ('where python 2^>nul') do (
         if not defined PYTHON_CMD (
@@ -39,25 +76,24 @@ if not defined PYTHON_CMD (
 )
 
 if not defined PYTHON_CMD (
-    if exist "%USERPROFILE%\anaconda3\python.exe" set "PYTHON_CMD=%USERPROFILE%\anaconda3\python.exe"
-    if exist "%USERPROFILE%\miniconda3\python.exe" set "PYTHON_CMD=%USERPROFILE%\miniconda3\python.exe"
-    if exist "C:\ProgramData\anaconda3\python.exe" set "PYTHON_CMD=C:\ProgramData\anaconda3\python.exe"
-    if exist "C:\anaconda3\python.exe" set "PYTHON_CMD=C:\anaconda3\python.exe"
-    for /d %%u in ("%SystemDrive%\Users\*") do (
-        if not defined PYTHON_CMD if exist "%%u\anaconda3\python.exe" set "PYTHON_CMD=%%u\anaconda3\python.exe"
-        if not defined PYTHON_CMD if exist "%%u\miniconda3\python.exe" set "PYTHON_CMD=%%u\miniconda3\python.exe"
-        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python311\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python311\python.exe"
-        if not defined PYTHON_CMD if exist "%%u\AppData\Local\Programs\Python\Python310\python.exe" set "PYTHON_CMD=%%u\AppData\Local\Programs\Python\Python310\python.exe"
-    )
-)
-
-if not defined PYTHON_CMD (
     echo [ERROR] Python was not found in PATH or standard Anaconda folders!
     echo         Please install Python 3.10+ or Anaconda and add it to PATH.
     pause
     exit /b 1
 )
+
 echo     Found Python: !PYTHON_CMD!
+set "PYTHON_EXE=!PYTHON_CMD!"
+echo PYTHON_EXE=!PYTHON_CMD!> "%~dp0.env.local"
+
+:: Check and auto-install Python dependencies if needed
+echo [*] Checking Python dependencies (roboflow, fastapi, uvicorn, PIL)...
+"!PYTHON_CMD!" -c "import roboflow, fastapi, uvicorn, PIL, requests, pydantic" >nul 2>&1
+if !ERRORLEVEL! neq 0 (
+    echo [*] Missing Python dependencies detected. Installing from requirements.txt...
+    "!PYTHON_CMD!" -m pip install -r "%~dp0requirements.txt"
+    "!PYTHON_CMD!" -m pip install roboflow
+)
 
 :: 2. Detect Node.js
 echo [*] Checking Node.js environment...
@@ -106,10 +142,10 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') 
 echo.
 echo [*] Starting Services:
 echo     1. Starting FastAPI Backend on port 8000...
-start "IRnow Hub - FastAPI Backend" /min cmd /c ""!PYTHON_CMD!" run_backend.py"
+start "IRnow Hub - FastAPI Backend" /min cmd /c "set "PYTHON_EXE=!PYTHON_CMD!" && "!PYTHON_CMD!" run_backend.py"
 
 echo     2. Starting Next.js Web Application on port 3000...
-start "IRnow Hub - Web Portal" /min cmd /c "npx next start -H 0.0.0.0 -p 3000"
+start "IRnow Hub - Web Portal" /min cmd /c "set "PYTHON_EXE=!PYTHON_CMD!" && npx next start -H 0.0.0.0 -p 3000"
 
 echo     3. Cloudflare Tunnel: Standby (Controlled on-demand via Web Portal Gateway)
 

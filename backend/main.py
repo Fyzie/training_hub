@@ -64,6 +64,20 @@ def get_host_python_exe() -> str:
     """Dynamically locates the best available Python interpreter on this host."""
     if os.environ.get("PYTHON_EXE") and Path(os.environ["PYTHON_EXE"]).exists():
         return os.environ["PYTHON_EXE"]
+
+    # Check .env.local
+    env_local = REPO_ROOT / ".env.local"
+    if env_local.exists():
+        try:
+            with open(env_local, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("PYTHON_EXE="):
+                        val = line.strip().split("=", 1)[1].strip("'\" ")
+                        if val and Path(val).exists():
+                            return val
+        except Exception:
+            pass
+
     if os.environ.get("CONDA_PREFIX"):
         conda_py = Path(os.environ["CONDA_PREFIX"]) / ("python.exe" if sys.platform == "win32" else "bin/python")
         if conda_py.exists():

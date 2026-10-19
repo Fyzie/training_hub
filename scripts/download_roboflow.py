@@ -120,7 +120,20 @@ def inspect_dataset_directory(dataset_dir: Path, fallback_splits: dict = None):
 def download_dataset(api_key: str, workspace: str, project: str, version: int, format_type: str = "coco-segmentation", target_dir: str = "", force_download: bool = False):
     # Route stdout during third-party library execution to stderr so that stdout stays pure JSON
     with contextlib.redirect_stdout(sys.stderr):
-        from roboflow import Roboflow
+        try:
+            from roboflow import Roboflow
+        except ImportError:
+            print("[Roboflow Downloader] 'roboflow' package not detected in current Python interpreter. Auto-installing now...", file=sys.stderr)
+            import subprocess
+            try:
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "roboflow<=1.1.28", "--quiet"])
+                except Exception:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "roboflow", "--quiet"])
+                from roboflow import Roboflow
+                print("[Roboflow Downloader] 'roboflow' package installed successfully.", file=sys.stderr)
+            except Exception as e:
+                raise ImportError(f"Missing 'roboflow' package and auto-install failed: {e}. Please run '{sys.executable} -m pip install roboflow' on this machine.")
 
         rf = Roboflow(api_key=api_key)
         if workspace:

@@ -6,8 +6,9 @@ psutil>=5.9.0
 requests>=2.28.0
 roboflow>=1.1.0
 pillow>=9.0.0
+timm>=0.9.0
+supervision>=0.18.0
 
 # Deep Learning / Model Training (Install PyTorch with CUDA for GPU acceleration):
 # pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-# pip install supervision
 

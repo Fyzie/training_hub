@@ -20,6 +20,22 @@ export function getHostPythonExe(): string {
     return cachedPythonExe;
   }
 
+  // 1b. Check .env.local configured by start_hub.bat or setup_office_pc.bat
+  try {
+    const envFile = path.join(process.cwd(), '.env.local');
+    if (fs.existsSync(envFile)) {
+      const content = fs.readFileSync(envFile, 'utf-8');
+      const match = content.match(/^PYTHON_EXE=(.*)$/m);
+      if (match && match[1]) {
+        const val = match[1].trim().replace(/^["']|["']$/g, '');
+        if (val && fs.existsSync(val)) {
+          cachedPythonExe = val;
+          return cachedPythonExe;
+        }
+      }
+    }
+  } catch {}
+
   const homedir = os.homedir();
   const hostUser = path.basename(homedir);
 
