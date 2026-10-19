@@ -37,7 +37,9 @@ import {
   HelpCircle,
   Trash2,
   Users,
-  X
+  X,
+  Loader2,
+  FolderArchive
 } from 'lucide-react';
 
 export function TrainingView() {
@@ -162,7 +164,13 @@ dataset = version.download("coco")`
       }
       if (dRes.ok) {
         const dData = await dRes.json();
-        setDatasets(dData);
+        setDatasets((prev) => {
+          const uploadingItems = prev.filter((d) => d.isUploading);
+          const remainingUploading = uploadingItems.filter(
+            (u) => !dData.some((real: Dataset) => real.name === u.name || real.id === u.id)
+          );
+          return [...remainingUploading, ...dData];
+        });
         if (!rfdetrForm.datasetId && dData.length > 0) {
           setRfdetrForm((prev) => ({ ...prev, datasetId: dData[0].id }));
         }
@@ -579,11 +587,34 @@ dataset = version.download("coco")`
     setIsUploading(true);
     setUploadError('');
 
+    const optimisticId = `temp-upload-${Date.now()}`;
+    const datasetName = datasetForm.name.trim() || (uploadFile ? uploadFile.name.replace(/\.[^/.]+$/, '') : (datasetUploadMode === 'roboflow' ? 'Roboflow Dataset' : 'Custom Dataset'));
+    const userName = user?.name || 'Staff ML Engineer';
+
+    // Add optimistic dataset block to Catalogued Datasets list immediately
+    const optimisticDataset: Dataset = {
+      id: optimisticId,
+      name: datasetName,
+      category: datasetForm.category || 'vision',
+      description: datasetForm.description.trim() || (datasetUploadMode === 'roboflow' ? 'Importing dataset from Roboflow...' : 'Uploading dataset archive to host storage...'),
+      format: datasetUploadMode === 'roboflow' ? 'coco' : 'yolo',
+      fileSizeMB: uploadFile ? Math.round((uploadFile.size / (1024 * 1024)) * 10) / 10 : 0,
+      sampleCount: 0,
+      uploadedBy: userName,
+      uploadedAt: new Date().toISOString(),
+      isUploading: true,
+      uploadProgress: datasetUploadMode === 'roboflow' ? 30 : 0,
+      uploadStatusText: datasetUploadMode === 'roboflow' ? 'Connecting to Roboflow & downloading dataset...' : 'Uploading dataset archive to server...'
+    };
+
+    setDatasets((prev) => [optimisticDataset, ...prev]);
+
     try {
       if (datasetUploadMode === 'roboflow') {
         if (!roboflowSnippet.trim()) {
           setUploadError('Please paste your Roboflow Python code snippet.');
           setIsUploading(false);
+          setDatasets((prev) => prev.filter((d) => d.id !== optimisticId));
           return;
         }
 
@@ -592,9 +623,9 @@ dataset = version.download("coco")`
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             roboflowSnippet: roboflowSnippet.trim(),
-            name: datasetForm.name.trim(),
+            name: datasetName,
             description: datasetForm.description.trim(),
-            uploadedBy: user?.name || 'Staff ML Engineer'
+            uploadedBy: userName
           })
         });
 
@@ -603,29 +634,74 @@ dataset = version.download("coco")`
           throw new Error(data.error || 'Failed to download dataset from Roboflow');
         }
 
+        setDatasets((prev) => [data, ...prev.filter((d) => d.id !== optimisticId)]);
         await loadData();
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);
         setDatasetForm({ name: '', category: 'vision', description: '' });
       } else {
+        if (!uploadFile) {
+          setUploadError('Please select a dataset file (.zip or folder archive) to upload.');
+          setIsUploading(false);
+          setDatasets((prev) => prev.filter((d) => d.id !== optimisticId));
+          return;
+        }
+
         const formData = new FormData();
-        formData.append('name', datasetForm.name || (uploadFile ? uploadFile.name.replace(/\.[^/.]+$/, '') : 'Custom Dataset'));
+        formData.append('name', datasetName);
         formData.append('category', datasetForm.category);
         formData.append('description', datasetForm.description);
-        formData.append('uploadedBy', user?.name || 'Staff ML Engineer');
-        if (uploadFile) {
-          formData.append('file', uploadFile);
-        }
+        formData.append('uploadedBy', userName);
+        formData.append('file', uploadFile);
 
-        const res = await fetch('/api/datasets', {
-          method: 'POST',
-          body: formData
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/datasets');
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              const loadedMb = (event.loaded / (1024 * 1024)).toFixed(1);
+              const totalMb = (event.total / (1024 * 1024)).toFixed(1);
+              setDatasets((prev) =>
+                prev.map((d) =>
+                  d.id === optimisticId
+                    ? {
+                        ...d,
+                        uploadProgress: percent,
+                        uploadStatusText: percent >= 100 ? 'Processing & extracting archive on server...' : `Uploading: ${percent}% (${loadedMb}MB / ${totalMb}MB)`
+                      }
+                    : d
+                )
+              );
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const data = JSON.parse(xhr.responseText);
+                setDatasets((prev) => [data, ...prev.filter((d) => d.id !== optimisticId)]);
+                resolve();
+              } catch (e) {
+                reject(new Error('Invalid response from server'));
+              }
+            } else {
+              let errMsg = 'Failed to upload dataset archive';
+              try {
+                const errJson = JSON.parse(xhr.responseText);
+                errMsg = errJson.error || errMsg;
+              } catch {}
+              reject(new Error(errMsg));
+            }
+          };
+
+          xhr.onerror = () => {
+            reject(new Error('Network error during file upload'));
+          };
+
+          xhr.send(formData);
         });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Failed to upload dataset archive');
-        }
 
         await loadData();
         setUploadSuccess(true);
@@ -636,6 +712,7 @@ dataset = version.download("coco")`
     } catch (err: any) {
       console.error('Dataset upload error:', err);
       setUploadError(err.message || 'Dataset upload failed.');
+      setDatasets((prev) => prev.filter((d) => d.id !== optimisticId));
     } finally {
       setIsUploading(false);
     }
@@ -931,7 +1008,12 @@ dataset = version.download("coco")`
                         </p>
                       </div>
 
-                      {isRunning ? (
+                      {job.stage === 'unzipping' ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-black uppercase tracking-wider shadow-xs animate-pulse">
+                          <FolderArchive className="w-3.5 h-3.5 text-amber-700 animate-bounce" />
+                          Unzipping Dataset...
+                        </span>
+                      ) : isRunning ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-black uppercase tracking-wider shadow-xs">
                           <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
                           Ongoing
@@ -962,26 +1044,43 @@ dataset = version.download("coco")`
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                        <span className="text-slate-500">
-                          Epoch {job.currentEpoch}/{job.totalEpochs}
-                        </span>
-                        <span className="text-slate-800 font-bold">{job.progressPercent}%</span>
+                    {job.stage === 'unzipping' ? (
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                          <span className="text-amber-800 font-bold flex items-center gap-1.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                            Unzipping dataset to host storage before training starts...
+                          </span>
+                          <span className="text-amber-800 font-black uppercase text-[10px] tracking-wider bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 animate-pulse">
+                            Extracting Zip
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-amber-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-amber-500 w-full animate-pulse"></div>
+                        </div>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          style={{ width: `${job.progressPercent}%` }}
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            isRunning
-                              ? 'bg-blue-600'
-                              : isCompleted
-                              ? 'bg-emerald-500'
-                              : 'bg-slate-400'
-                          }`}
-                        ></div>
+                    ) : (
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                          <span className="text-slate-500">
+                            Epoch {job.currentEpoch}/{job.totalEpochs}
+                          </span>
+                          <span className="text-slate-800 font-bold">{job.progressPercent}%</span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            style={{ width: `${job.progressPercent}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              isRunning
+                                ? 'bg-blue-600'
+                                : isCompleted
+                                ? 'bg-emerald-500'
+                                : 'bg-slate-400'
+                            }`}
+                          ></div>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Footer Controls & Stats */}
                       <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -1062,7 +1161,12 @@ dataset = version.download("coco")`
                     </h3>
                     <div className="flex items-center gap-2 mt-0.5">
                       <p className="text-xs text-blue-600 font-bold">{selectedJob.taskType}</p>
-                      {selectedJob.status === 'running' ? (
+                      {selectedJob.stage === 'unzipping' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase tracking-wider animate-pulse">
+                          <FolderArchive className="w-3 h-3 text-amber-700 animate-bounce" />
+                          Unzipping Dataset
+                        </span>
+                      ) : selectedJob.status === 'running' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-black uppercase tracking-wider">
                           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
                           Ongoing
@@ -2456,6 +2560,52 @@ dataset = version.download("coco")`
             ) : (
             <div className="grid grid-cols-1 gap-4">
               {displayedDatasets.map((d) => (
+                d.isUploading ? (
+                  <div
+                    key={d.id}
+                    className="bg-white rounded-3xl p-5 shadow-sm border-2 border-blue-400/80 bg-blue-50/20 transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+                          <h4 className="font-bold text-base text-slate-900">{d.name}</h4>
+                          <span className="text-[10px] text-blue-700 font-extrabold bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                            Uploading...
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">{d.description}</p>
+                      </div>
+
+                      <span className="text-xs font-black text-blue-700 bg-blue-100 px-2.5 py-1 rounded-xl shrink-0">
+                        {d.uploadProgress !== undefined ? `${d.uploadProgress}%` : 'Processing'}
+                      </span>
+                    </div>
+
+                    {/* Live Upload Progress Bar */}
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs font-semibold text-slate-600 mb-1">
+                        <span className="flex items-center gap-1.5 text-blue-600 font-medium">
+                          <UploadCloud className="w-3.5 h-3.5 shrink-0" />
+                          {d.uploadStatusText || 'Uploading to workstation storage-hub...'}
+                        </span>
+                        <span className="font-bold text-slate-800">{d.uploadProgress || 0}%</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          style={{ width: `${Math.max(5, d.uploadProgress || 0)}%` }}
+                          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-200"
+                        ></div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                      <span>Uploaded by <strong className="text-slate-600">{d.uploadedBy}</strong></span>
+                      {d.fileSizeMB > 0 && <span>Size: <strong className="text-slate-600">{d.fileSizeMB} MB</strong></span>}
+                      <span className="text-slate-400 italic">Adding to catalog...</span>
+                    </div>
+                  </div>
+                ) : (
                 <div
                   key={d.id}
                   onClick={() => handleOpenDatasetAnalysis(d)}
@@ -2524,6 +2674,7 @@ dataset = version.download("coco")`
                     </div>
                   </div>
                 </div>
+                )
               ))}
             </div>
             )}

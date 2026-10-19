@@ -324,11 +324,22 @@ def zip_dataset_dir(dataset_dir: str, target_zip: str):
     return target_path
 
 
+def extract_dataset_zip(zip_path: str, extract_to: str):
+    real_zip = os.path.abspath(zip_path)
+    real_dest = os.path.abspath(extract_to)
+    if not os.path.exists(real_zip):
+        raise FileNotFoundError(f"Zip archive not found: {zip_path}")
+    os.makedirs(real_dest, exist_ok=True)
+    with zipfile.ZipFile(real_zip, 'r') as zf:
+        zf.extractall(real_dest)
+    return real_dest
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dataset Analyzer & Archiver")
-    parser.add_argument("--action", type=str, choices=["analyze", "zip"], default="analyze")
+    parser.add_argument("--action", type=str, choices=["analyze", "zip", "extract"], default="analyze")
     parser.add_argument("--dataset_dir", type=str, required=True, help="Path to dataset directory")
-    parser.add_argument("--target_zip", type=str, default="", help="Target output zip file path")
+    parser.add_argument("--target_zip", type=str, default="", help="Target output or source zip file path")
 
     args = parser.parse_args()
 
@@ -340,4 +351,7 @@ if __name__ == "__main__":
     elif args.action == "zip":
         out = zip_dataset_dir(args.dataset_dir, args.target_zip)
         print(f"Dataset zipped successfully to: {out}")
+    elif args.action == "extract":
+        out = extract_dataset_zip(args.target_zip or args.dataset_dir, args.dataset_dir if args.target_zip else os.path.splitext(args.dataset_dir)[0])
+        print(f"Dataset extracted successfully to: {out}")
 

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
+import { getHostPythonExe } from './python-runtime';
 
 /**
  * Storage Hub - Centralized Data & Storage Path Resolution
@@ -164,16 +165,12 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
         if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir) && fs.statSync(/*turbopackIgnore: true*/ extractedDir).isDirectory()) {
           return extractedDir;
         }
-        try {
-          fs.mkdirSync(extractedDir, { recursive: true });
-          execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${cand}' -DestinationPath '${extractedDir}' -Force"`, {
-            timeout: 60000,
-            stdio: ['ignore', 'ignore', 'ignore']
-          });
-          if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir)) {
-            return extractedDir;
-          }
-        } catch {}
+        const extractedDir2 = `${cand}_extracted`;
+        if (fs.existsSync(/*turbopackIgnore: true*/ extractedDir2) && fs.statSync(/*turbopackIgnore: true*/ extractedDir2).isDirectory()) {
+          return extractedDir2;
+        }
+        // Return archive path directly so scheduler can unzip asynchronously with status updates
+        return cand;
       }
       return cand;
     }
@@ -199,6 +196,47 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
 
   // Fallback to standard location under current storage hub datasets folder
   return targetSubPath ? path.join(UPLOADS_DIR, 'datasets', targetSubPath) : path.join(UPLOADS_DIR, 'datasets');
+}
+
+/**
+ * Unzips a dataset archive asynchronously using the host's Python zipfile utility.
+ * Extremely fast, non-blocking, and avoids PowerShell console popups.
+ */
+export function unzipDatasetArchiveAsync(zipPath: string, destDir: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+
+      const pythonExe = getHostPythonExe();
+      const scriptPath = path.join(process.cwd(), 'scripts', 'dataset_tools.py');
+
+      const child = spawn(pythonExe, [
+        scriptPath,
+        '--action', 'extract',
+        '--dataset_dir', destDir,
+        '--target_zip', zipPath
+      ]);
+
+      let stderr = '';
+      child.stderr?.on('data', (d) => { stderr += d.toString(); });
+
+      child.on('close', (code) => {
+        if (code === 0 && fs.existsSync(destDir)) {
+          resolve(destDir);
+        } else {
+          reject(new Error(stderr || `Dataset extraction failed with exit code ${code}`));
+        }
+      });
+
+      child.on('error', (err) => {
+        reject(err);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 

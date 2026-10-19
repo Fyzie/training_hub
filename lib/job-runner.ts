@@ -3,7 +3,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { dataStore } from './data-store';
 import { TrainingJob, TrainingMetricPoint } from './types';
-import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir } from './storage';
+import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir, unzipDatasetArchiveAsync } from './storage';
 import { getHostPythonExe } from './python-runtime';
 
 class JobScheduler {
@@ -52,7 +52,63 @@ class JobScheduler {
       if (!activeRunningJob) {
         const nextQueued = jobs.find((j) => j.status === 'queued');
         if (nextQueued) {
+          const datasets = dataStore.getDatasets();
+          const dataset = datasets.find((d) => d.id === nextQueued.datasetId || d.name === nextQueued.datasetName);
+          const rawPath = dataset?.filePath || '';
+          const resolvedPath = resolveHostDatasetDir(rawPath, dataset?.name || nextQueued.datasetName);
+
+          const isZip = resolvedPath.toLowerCase().endsWith('.zip') || (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile());
+          const extractedCandidate = resolvedPath.replace(/\.zip$/i, '');
+          const isExtractedAlready = fs.existsSync(extractedCandidate) && fs.statSync(extractedCandidate).isDirectory() && fs.readdirSync(extractedCandidate).length > 0;
+
+          if (isZip && !isExtractedAlready) {
+            // Mark job as unzipping dataset archive in host queue
+            nextQueued.status = 'running';
+            nextQueued.stage = 'unzipping';
+            nextQueued.startedAt = new Date().toISOString();
+            nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Dataset archive (.zip) detected. Unzipping dataset to host storage...`);
+            dataStore.updateJob(nextQueued.id, nextQueued);
+            activeRunningJob = nextQueued;
+
+            unzipDatasetArchiveAsync(resolvedPath, extractedCandidate)
+              .then((finalDir) => {
+                console.log(`[Host Server] Dataset unzipped to: ${finalDir}`);
+                if (dataset) {
+                  dataset.filePath = `/uploads/datasets/${path.basename(finalDir)}`;
+                  dataStore.saveDatasets(datasets);
+                }
+                const updatedJob = dataStore.getJobById(nextQueued.id);
+                if (updatedJob && updatedJob.status === 'running') {
+                  updatedJob.stage = 'training';
+                  updatedJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Dataset unzipped successfully: ${path.basename(finalDir)}`);
+                  updatedJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${updatedJob.totalEpochs} on Host GPU (CUDA)...`);
+                  dataStore.updateJob(updatedJob.id, updatedJob);
+                  this.spawnTrainingProcess(updatedJob, finalDir);
+                }
+              })
+              .catch((err) => {
+                console.error('[Host Server] Unzip failed:', err);
+                const updatedJob = dataStore.getJobById(nextQueued.id);
+                if (updatedJob) {
+                  updatedJob.status = 'failed';
+                  updatedJob.stage = undefined;
+                  updatedJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Failed to unzip dataset archive: ${err.message}`);
+                  dataStore.updateJob(updatedJob.id, updatedJob);
+                }
+              });
+            return;
+          }
+
+          // Dataset is already unzipped / ready
+          const finalDatasetDir = isExtractedAlready ? extractedCandidate : resolvedPath;
+          if (dataset && isExtractedAlready && dataset.filePath?.toLowerCase().endsWith('.zip')) {
+            dataset.filePath = `/uploads/datasets/${path.basename(extractedCandidate)}`;
+            dataStore.saveDatasets(datasets);
+          }
+
           nextQueued.status = 'running';
+          nextQueued.stage = 'training';
+          nextQueued.startedAt = new Date().toISOString();
           const deviceLabel = nextQueued.deviceName ? `${nextQueued.device} (${nextQueued.deviceName})` : nextQueued.device;
           nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Training slot acquired. Initializing Host GPU: ${deviceLabel}...`);
           nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Loading dataset from host storage: ${nextQueued.datasetName}...`);
@@ -60,55 +116,11 @@ class JobScheduler {
           dataStore.updateJob(nextQueued.id, nextQueued);
           activeRunningJob = nextQueued;
 
-          // Spawn genuine GPU training process on Host Workstation GPU (CUDA)
-          try {
-            const pythonExe = getHostPythonExe();
-
-            const isClf =
-              (nextQueued.taskType && nextQueued.taskType.toLowerCase().includes('classification')) ||
-              (nextQueued.hyperparameters?.model_architecture && nextQueued.hyperparameters.model_architecture.includes('mobilenetv4'));
-
-            const isBbox = !isClf && (
-              (nextQueued.taskType && nextQueued.taskType.toLowerCase().includes('bbox')) ||
-              (nextQueued.taskType && nextQueued.taskType.toLowerCase().includes('detection')) ||
-              (nextQueued.hyperparameters?.model_architecture && !nextQueued.hyperparameters.model_architecture.includes('Seg'))
-            );
-
-            let scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_segmentation', 'main.py');
-            if (isClf) {
-              scriptPath = path.join(process.cwd(), 'training_scripts', 'image_classification', 'main.py');
-            } else if (isBbox) {
-              scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_bbox', 'main.py');
-            }
-
-            const datasets = dataStore.getDatasets();
-            const dataset = datasets.find((d) => d.id === nextQueued.datasetId || d.name === nextQueued.datasetName);
-            const datasetDir = resolveHostDatasetDir(dataset?.filePath, dataset?.name || nextQueued.datasetName);
-            const jobDir = path.join(UPLOADS_DIR, 'runs', nextQueued.id);
-
-            let defaultArch = 'RFDETRSegSmall';
-            if (isClf) defaultArch = 'mobilenetv4_conv_small';
-            else if (isBbox) defaultArch = 'RFDETRSmall';
-            const modelArch = nextQueued.hyperparameters?.model_architecture || defaultArch;
-
-            const extraArgs = isClf
-              ? `--optimizer "${nextQueued.hyperparameters?.optimizer || 'AdamW'}" --img_size ${nextQueued.hyperparameters?.img_size || 224} --weight_decay ${nextQueued.hyperparameters?.weight_decay || 0.0001}`
-              : '';
-
-            const runCmd = `"${pythonExe}" "${scriptPath}" --job_id "${nextQueued.id}" --output_dir "${jobDir}" --dataset_dir "${datasetDir}" --experiment_name "${nextQueued.name}" --run_name "${modelArch}_${nextQueued.id}" --model_architecture "${modelArch}" --epochs ${nextQueued.totalEpochs} --batch_size ${nextQueued.batchSize} --lr ${nextQueued.learningRate} --device cuda ${extraArgs}`;
-            console.log(`[Host Server Job Runner] Spawning GPU training process: ${runCmd}`);
-            exec(runCmd, (err, stdout, stderr) => {
-              if (err) console.error('[Host Server] GPU training process error:', err);
-              if (stdout) console.log(stdout);
-              if (stderr) console.error(stderr);
-            });
-          } catch (e) {
-            console.error('[Host Server] Failed to spawn GPU training process:', e);
-          }
+          this.spawnTrainingProcess(nextQueued, finalDatasetDir);
         }
       }
 
-      if (activeRunningJob && activeRunningJob.status === 'running') {
+      if (activeRunningJob && activeRunningJob.status === 'running' && activeRunningJob.stage !== 'unzipping') {
         const job = activeRunningJob;
         const nextEpoch = job.currentEpoch + 1;
 
@@ -236,6 +248,54 @@ class JobScheduler {
       console.error('Job scheduler tick error:', err);
     } finally {
       this.isProcessing = false;
+    }
+  }
+
+  private spawnTrainingProcess(job: TrainingJob, datasetDir: string) {
+    try {
+      const pythonExe = getHostPythonExe();
+
+      const isClf =
+        (job.taskType && job.taskType.toLowerCase().includes('classification')) ||
+        (job.hyperparameters?.model_architecture && job.hyperparameters.model_architecture.includes('mobilenetv4'));
+
+      const isBbox = !isClf && (
+        (job.taskType && job.taskType.toLowerCase().includes('bbox')) ||
+        (job.taskType && job.taskType.toLowerCase().includes('detection')) ||
+        (job.hyperparameters?.model_architecture && !job.hyperparameters.model_architecture.includes('Seg'))
+      );
+
+      let scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_segmentation', 'main.py');
+      if (isClf) {
+        scriptPath = path.join(process.cwd(), 'training_scripts', 'image_classification', 'main.py');
+      } else if (isBbox) {
+        scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_bbox', 'main.py');
+      }
+
+      ensureStorageHub();
+      const jobDir = path.join(UPLOADS_DIR, 'runs', job.id);
+      if (!fs.existsSync(jobDir)) {
+        fs.mkdirSync(jobDir, { recursive: true });
+      }
+
+      let defaultArch = 'RFDETRSegSmall';
+      if (isClf) defaultArch = 'mobilenetv4_conv_small';
+      else if (isBbox) defaultArch = 'RFDETRSmall';
+      const modelArch = job.hyperparameters?.model_architecture || defaultArch;
+
+      const extraArgs = isClf
+        ? `--optimizer "${job.hyperparameters?.optimizer || 'AdamW'}" --img_size ${job.hyperparameters?.img_size || 224} --weight_decay ${job.hyperparameters?.weight_decay || 0.0001}`
+        : '';
+
+      const runCmd = `"${pythonExe}" "${scriptPath}" --job_id "${job.id}" --output_dir "${jobDir}" --dataset_dir "${datasetDir}" --experiment_name "${job.name}" --run_name "${modelArch}_${job.id}" --model_architecture "${modelArch}" --epochs ${job.totalEpochs} --batch_size ${job.batchSize} --lr ${job.learningRate} --device cuda ${extraArgs}`;
+      console.log(`[Host Server Job Runner] Spawning GPU training process: ${runCmd}`);
+      exec(runCmd, (err, stdout, stderr) => {
+        if (err) console.error('[Host Server] GPU training process error:', err);
+        if (stdout) console.log(stdout);
+        if (stderr) console.error(stderr);
+      });
+    } catch (e) {
+      console.error('[Host Server] Failed to spawn GPU training process:', e);
     }
   }
 

@@ -157,20 +157,21 @@ def resolve_host_dataset_dir(raw_path: str = "", dataset_name: str = "") -> str:
         if c.exists():
             if c.is_file() and c.suffix.lower() == ".zip":
                 extracted_dir = c.parent / f"{c.name}_extracted"
-                if not extracted_dir.exists():
-                    try:
-                        with zipfile.ZipFile(c, 'r') as zip_ref:
-                            zip_ref.extractall(extracted_dir)
-                    except Exception as e:
-                        print("Failed to auto-extract zip:", e)
-                if extracted_dir.exists():
+                if extracted_dir.exists() and any(extracted_dir.iterdir()):
                     return str(extracted_dir)
+                stem_dir = c.parent / c.stem
+                if stem_dir.exists() and any(stem_dir.iterdir()):
+                    return str(stem_dir)
+                return str(c)
             return str(c)
 
     if sub:
         extracted_cand = UPLOAD_DIR / "datasets" / f"{sub}_extracted"
-        if extracted_cand.exists():
+        if extracted_cand.exists() and any(extracted_cand.iterdir()):
             return str(extracted_cand)
+        stem_cand = UPLOAD_DIR / "datasets" / Path(sub).stem
+        if stem_cand.exists() and any(stem_cand.iterdir()):
+            return str(stem_cand)
 
     return str(UPLOAD_DIR / "datasets" / (sub or dataset_name or "dataset"))
 
@@ -288,6 +289,50 @@ class TrainingScheduler:
                 print("Job scheduler loop error:", e)
             time.sleep(3.0)
 
+    def _spawn_training_process(self, j: dict, ds_dir: str):
+        try:
+            py_exe = get_host_python_exe()
+            task_str = str(j.get("taskType", "")).lower()
+            is_bbox = "bbox" in task_str or "detection" in task_str
+            is_cls = "class" in task_str
+
+            if is_cls:
+                scr = REPO_ROOT / "training_scripts" / "image_classification" / "main.py"
+            elif is_bbox:
+                scr = REPO_ROOT / "training_scripts" / "rfdetr_bbox" / "main.py"
+            else:
+                scr = REPO_ROOT / "training_scripts" / "rfdetr_segmentation" / "main.py"
+
+            arch = j.get("hyperparameters", {}).get("model_architecture") or (
+                "mobilenetv4_conv_small.e1200_r224_in1k" if is_cls else ("RFDETRSmall" if is_bbox else "RFDETRSegSmall")
+            )
+
+            out_dir = str(RUNS_DIR / j["id"])
+            (RUNS_DIR / j["id"]).mkdir(parents=True, exist_ok=True)
+
+            cmd = [
+                py_exe, str(scr),
+                "--job_id", str(j["id"]),
+                "--output_dir", out_dir,
+                "--dataset_dir", ds_dir,
+                "--experiment_name", str(j.get("name", "RF-DETR")),
+                "--run_name", str(j.get("runName", f"{arch}_{j['id']}")),
+                "--model_architecture", str(arch),
+                "--epochs", str(j.get("totalEpochs", 80)),
+                "--batch_size", str(j.get("batchSize", 4)),
+                "--lr", str(j.get("hyperparameters", {}).get("learning_rate", 0.0001)),
+                "--device", str(j.get("device", "cuda"))
+            ]
+            if is_cls:
+                opt = j.get("hyperparameters", {}).get("optimizer", "AdamW")
+                img_sz = j.get("hyperparameters", {}).get("img_size", 224)
+                wd = j.get("hyperparameters", {}).get("weight_decay", 0.0001)
+                cmd.extend(["--optimizer", str(opt), "--img_size", str(img_sz), "--weight_decay", str(wd)])
+
+            subprocess.Popen(cmd)
+        except Exception as e:
+            print("Failed to launch background GPU script:", e)
+
     def tick(self):
         jobs = read_json("jobs.json", [])
         active_job = None
@@ -300,61 +345,70 @@ class TrainingScheduler:
         if not active_job:
             for j in jobs:
                 if j.get("status") == "queued":
+                    datasets = read_json("datasets.json", [])
+                    raw_ds_path = ""
+                    for d in datasets:
+                        if d.get("id") == j.get("datasetId") or d.get("name") == j.get("datasetName"):
+                            raw_ds_path = d.get("filePath", "")
+                            break
+                    ds_dir = resolve_host_dataset_dir(raw_ds_path, j.get("datasetName", ""))
+                    is_zip = ds_dir.lower().endswith(".zip") and os.path.isfile(ds_dir)
+                    extracted_cand = ds_dir[:-4] if is_zip else ds_dir
+                    is_extracted = os.path.isdir(extracted_cand) and any(os.scandir(extracted_cand))
+
+                    if is_zip and not is_extracted:
+                        j["status"] = "running"
+                        j["stage"] = "unzipping"
+                        j["startedAt"] = datetime.utcnow().isoformat()
+                        j.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] Dataset archive (.zip) detected. Unzipping dataset to host storage...")
+                        write_json("jobs.json", jobs)
+
+                        def _unzip_and_start(job_id=j["id"], zip_file=ds_dir, target_dir=extracted_cand):
+                            try:
+                                os.makedirs(target_dir, exist_ok=True)
+                                with zipfile.ZipFile(zip_file, 'r') as zf:
+                                    zf.extractall(target_dir)
+                                current_jobs = read_json("jobs.json", [])
+                                for cj in current_jobs:
+                                    if cj.get("id") == job_id:
+                                        cj["stage"] = "training"
+                                        cj.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] Dataset unzipped successfully: {os.path.basename(target_dir)}")
+                                        cj.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] Commencing Epoch 1/{cj.get('totalEpochs', 100)} on Host GPU (CUDA)...")
+                                        self._spawn_training_process(cj, target_dir)
+                                        break
+                                write_json("jobs.json", current_jobs)
+
+                                current_ds = read_json("datasets.json", [])
+                                for cd in current_ds:
+                                    if cd.get("filePath", "").endswith(os.path.basename(zip_file)):
+                                        cd["filePath"] = f"/uploads/datasets/{os.path.basename(target_dir)}"
+                                write_json("datasets.json", current_ds)
+                            except Exception as err:
+                                print("[Backend Scheduler] Unzip failed:", err)
+                                current_jobs = read_json("jobs.json", [])
+                                for cj in current_jobs:
+                                    if cj.get("id") == job_id:
+                                        cj["status"] = "failed"
+                                        cj["stage"] = None
+                                        cj.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] Failed to unzip dataset archive: {err}")
+                                        break
+                                write_json("jobs.json", current_jobs)
+
+                        threading.Thread(target=_unzip_and_start, daemon=True).start()
+                        break
+
+                    final_ds = extracted_cand if is_extracted else ds_dir
                     j["status"] = "running"
+                    j["stage"] = "training"
                     j["startedAt"] = datetime.utcnow().isoformat()
                     j.setdefault("logs", []).append(f"[{datetime.now().strftime('%H:%M:%S')}] Acquired training slot on {j.get('device', 'cuda:0')}.")
                     j["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Initialized backbone: {j.get('taskType', 'RF-DETR')}. Commencing Epoch 1...")
                     write_json("jobs.json", jobs)
                     active_job = j
-
-                    # Spawn genuine GPU training process on CUDA using dynamic host Python
-                    try:
-                        py_exe = get_host_python_exe()
-                        task_str = str(j.get("taskType", "")).lower()
-                        is_bbox = "bbox" in task_str or "detection" in task_str
-                        is_cls = "class" in task_str
-
-                        if is_cls:
-                            scr = REPO_ROOT / "training_scripts" / "image_classification" / "main.py"
-                        elif is_bbox:
-                            scr = REPO_ROOT / "training_scripts" / "rfdetr_bbox" / "main.py"
-                        else:
-                            scr = REPO_ROOT / "training_scripts" / "rfdetr_segmentation" / "main.py"
-
-                        arch = j.get("hyperparameters", {}).get("model_architecture") or (
-                            "mobilenetv4_conv_small.e1200_r224_in1k" if is_cls else ("RFDETRSmall" if is_bbox else "RFDETRSegSmall")
-                        )
-
-                        # Resolve dataset directory adapting to local machine
-                        datasets = read_json("datasets.json", [])
-                        raw_ds_path = ""
-                        for d in datasets:
-                            if d.get("id") == j.get("datasetId") or d.get("name") == j.get("datasetName"):
-                                raw_ds_path = d.get("filePath", "")
-                                break
-                        ds_dir = resolve_host_dataset_dir(raw_ds_path, j.get("datasetName", ""))
-                        out_dir = str(RUNS_DIR / j["id"])
-
-                        cmd = [
-                            py_exe, str(scr),
-                            "--job_id", str(j["id"]),
-                            "--output_dir", out_dir,
-                            "--dataset_dir", ds_dir,
-                            "--experiment_name", str(j.get("name", "RF-DETR")),
-                            "--run_name", str(j.get("runName", f"{arch}_{j['id']}")),
-                            "--model_architecture", str(arch),
-                            "--epochs", str(j.get("totalEpochs", 80)),
-                            "--batch_size", str(j.get("batchSize", 4)),
-                            "--lr", str(j.get("hyperparameters", {}).get("learning_rate", 0.0001)),
-                            "--device", str(j.get("device", "cuda"))
-                        ]
-                        subprocess.Popen(cmd)
-                    except Exception as e:
-                        print("Failed to launch background GPU script:", e)
-
+                    self._spawn_training_process(j, final_ds)
                     break
 
-        if active_job and active_job.get("status") == "running":
+        if active_job and active_job.get("status") == "running" and active_job.get("stage") != "unzipping":
             cur_epoch = active_job.get("currentEpoch", 0) + 1
             total_epochs = active_job.get("totalEpochs", 80)
 

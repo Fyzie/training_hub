@@ -109,6 +109,7 @@ export interface TrainingJob {
   }>;
   hyperparameters: Record<string, any>;
   description?: string;
+  stage?: 'unzipping' | 'preparing' | 'training' | 'completed';
 }
 
 export interface Dataset {
@@ -124,6 +125,9 @@ export interface Dataset {
   filePath?: string;
   classes?: string[];
   splits?: { train: number; val: number; test?: number };
+  isUploading?: boolean;
+  uploadProgress?: number;
+  uploadStatusText?: string;
 }
 
 export type HardwareStatus = 'available' | 'in_use' | 'maintenance' | 'onsite' | 'deployed_forever';
