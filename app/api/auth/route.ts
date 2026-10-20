@@ -56,9 +56,12 @@ export async function POST(request: Request) {
 
       const token = createPasswordResetToken(email);
       const env = getEnvHubConfig();
-      const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'hub.irnow.com.my';
-      const proto = request.headers.get('x-forwarded-proto') || (host.includes('irnow.com.my') ? 'https' : 'http');
-      const baseUrl = env.APP_URL ? env.APP_URL.replace(/\/$/, '') : `${proto}://${host}`;
+      let baseUrl = env.APP_URL ? env.APP_URL.replace(/\/$/, '') : '';
+      if (!baseUrl) {
+        const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'localhost:3000';
+        const proto = request.headers.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
+        baseUrl = `${proto}://${host}`;
+      }
       const resetUrl = `${baseUrl}/?action=reset-password&token=${token}`;
 
       const emailResult = await sendEmail({

@@ -69,9 +69,18 @@ export async function sendEmail({
     };
   }
 
-  let from = env.RESEND_FROM_EMAIL || process.env.RESEND_FROM_EMAIL || 'IRnow Hub <no-reply@hub.irnow.com.my>';
+  let from = env.RESEND_FROM_EMAIL || process.env.RESEND_FROM_EMAIL;
   if (!from || from.includes('onboarding@resend.dev')) {
-    from = 'IRnow Hub <no-reply@hub.irnow.com.my>';
+    if (env.APP_URL) {
+      try {
+        const host = new URL(env.APP_URL.startsWith('http') ? env.APP_URL : `https://${env.APP_URL}`).hostname;
+        from = `IRnow Hub <no-reply@${host}>`;
+      } catch {
+        from = 'IRnow Hub <no-reply@hub.hafizimalik.com>';
+      }
+    } else {
+      from = 'IRnow Hub <no-reply@hub.hafizimalik.com>';
+    }
   } else if (!from.includes('<') && from.includes('@')) {
     from = `IRnow Hub <${from.trim()}>`;
   }
