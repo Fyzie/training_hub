@@ -30,8 +30,9 @@ export async function POST(request: Request) {
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      hasAttachment: Boolean(body.attachment),
-      attachment: body.attachment,
+      hasAttachment: Boolean(body.attachment || (body.attachments && body.attachments.length > 0)),
+      attachment: body.attachment || (body.attachments && body.attachments[0]),
+      attachments: body.attachments || (body.attachment ? [body.attachment] : []),
       coverImage: body.coverImage,
       views: 1,
       likes: 0

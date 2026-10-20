@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { BlogPost, GuidanceCategory } from '@/lib/types';
+import { BlogPost, BlogAttachment, GuidanceCategory } from '@/lib/types';
 import { useAuth } from './AuthContext';
 import {
   BookOpen,
@@ -27,7 +27,8 @@ import {
   ArrowLeft,
   AlertCircle,
   FileCode,
-  Paperclip
+  Paperclip,
+  Package
 } from 'lucide-react';
 
 function getInitials(name?: string) {
@@ -204,6 +205,10 @@ export function BlogView() {
   const [isDraggingDoc, setIsDraggingDoc] = useState(false);
   const [docUploadError, setDocUploadError] = useState<string | null>(null);
 
+  // Additional attachments for both Upload and Custom Blog modes
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<BlogAttachment[]>([]);
+
   const loadBlogs = async () => {
     try {
       const res = await fetch('/api/blogs');
@@ -350,8 +355,40 @@ export function BlogView() {
         }
       }
 
+      // Upload any additional attached files
+      const uploadedExtras: BlogAttachment[] = [];
+      for (const extra of additionalFiles) {
+        try {
+          const extraFormData = new FormData();
+          extraFormData.append('file', extra);
+          extraFormData.append('type', 'doc');
+          const extraRes = await fetch('/api/upload', { method: 'POST', body: extraFormData });
+          if (extraRes.ok) {
+            const exData = await extraRes.json();
+            if (exData.success) {
+              uploadedExtras.push({
+                name: extra.name,
+                url: exData.url,
+                fileType: exData.fileType || (extra.name.toLowerCase().endsWith('.py') ? 'py' : 'other'),
+                sizeMB: exData.sizeMB || Math.round((extra.size / (1024 * 1024)) * 100) / 100
+              });
+            }
+          }
+        } catch (exErr) {
+          console.warn('Failed to upload additional attachment:', extra.name, exErr);
+        }
+      }
+
       const titleClean = fileTitle.trim() || uploadedFile.name.replace(/\.[^/.]+$/, '');
       const isPy = uploadedFile.name.toLowerCase().endsWith('.py');
+      const primaryAttachment: BlogAttachment = {
+        name: uploadedFile.name,
+        url: uploadData.url,
+        fileType: uploadData.fileType || (isPy ? 'py' : isMd ? 'md' : 'other'),
+        sizeMB: uploadData.sizeMB || Math.round((uploadedFile.size / (1024 * 1024)) * 100) / 100
+      };
+      const allAttachments: BlogAttachment[] = [primaryAttachment, ...uploadedExtras];
+
       const blogPayload = {
         title: titleClean,
         excerpt: fileDescription.trim() || (isMd ? docContent.slice(0, 150).replace(/[#*`]/g, '') + '...' : `Attachment resource: ${uploadedFile.name}`),
@@ -364,12 +401,8 @@ export function BlogView() {
           avatar: user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
           role: user?.role || 'Staff Engineer'
         },
-        attachment: {
-          name: uploadedFile.name,
-          url: uploadData.url,
-          fileType: uploadData.fileType || (isPy ? 'py' : isMd ? 'md' : 'other'),
-          sizeMB: uploadData.sizeMB || Math.round((uploadedFile.size / (1024 * 1024)) * 100) / 100
-        }
+        attachment: primaryAttachment,
+        attachments: allAttachments
       };
 
       const blogRes = await fetch('/api/blogs', {
@@ -387,6 +420,8 @@ export function BlogView() {
       await loadBlogs();
       setShowCreateModal(false);
       setUploadedFile(null);
+      setAdditionalFiles([]);
+      setExistingAttachments([]);
       setFileTitle('');
       setFileDescription('');
       setFileTags('Guidelines, Document');
@@ -415,6 +450,13 @@ export function BlogView() {
     setPostCategory(cat);
     setPostTags(post.tags.join(', '));
     setPostContent(post.content);
+
+    const initialAttachments: BlogAttachment[] = [
+      ...(post.attachments || []),
+      ...(post.attachment && !(post.attachments || []).some((a) => a.url === post.attachment?.url) ? [post.attachment] : [])
+    ];
+    setExistingAttachments(initialAttachments);
+    setAdditionalFiles([]);
     setCreationMode('write');
     setShowCreateModal(true);
   };
@@ -440,6 +482,30 @@ export function BlogView() {
 
     setIsSubmitting(true);
     try {
+      // Upload any new additional attached files
+      const uploadedExtras: BlogAttachment[] = [...existingAttachments];
+      for (const extra of additionalFiles) {
+        try {
+          const extraFormData = new FormData();
+          extraFormData.append('file', extra);
+          extraFormData.append('type', 'doc');
+          const extraRes = await fetch('/api/upload', { method: 'POST', body: extraFormData });
+          if (extraRes.ok) {
+            const exData = await extraRes.json();
+            if (exData.success) {
+              uploadedExtras.push({
+                name: extra.name,
+                url: exData.url,
+                fileType: exData.fileType || (extra.name.toLowerCase().endsWith('.py') ? 'py' : 'other'),
+                sizeMB: exData.sizeMB || Math.round((extra.size / (1024 * 1024)) * 100) / 100
+              });
+            }
+          }
+        } catch (exErr) {
+          console.warn('Failed to upload additional attachment:', extra.name, exErr);
+        }
+      }
+
       if (editingBlogId) {
         // Update existing blog
         const updatePayload = {
@@ -447,7 +513,9 @@ export function BlogView() {
           category: postCategory,
           tags: postTags.split(',').map((t) => t.trim()).filter(Boolean),
           content: postContent,
-          excerpt: postContent.slice(0, 160).replace(/[#*`\n]/g, ' ') + '...'
+          excerpt: postContent.slice(0, 160).replace(/[#*`\n]/g, ' ') + '...',
+          attachment: uploadedExtras[0] || null,
+          attachments: uploadedExtras
         };
 
         const res = await fetch(`/api/blogs/${editingBlogId}`, {
@@ -464,6 +532,8 @@ export function BlogView() {
           setEditingBlogId(null);
           setPostTitle('');
           setPostContent('');
+          setAdditionalFiles([]);
+          setExistingAttachments([]);
         }
       } else {
         // Create new blog
@@ -478,7 +548,9 @@ export function BlogView() {
             name: user?.name || 'Staff Specialist',
             avatar: user?.avatar || '',
             role: user?.role || 'Engineer'
-          }
+          },
+          attachment: uploadedExtras[0] || undefined,
+          attachments: uploadedExtras
         };
 
         const blogRes = await fetch('/api/blogs', {
@@ -488,10 +560,16 @@ export function BlogView() {
         });
 
         if (blogRes.ok) {
+          const createdBlog = await blogRes.json();
           await loadBlogs();
           setShowCreateModal(false);
           setPostTitle('');
           setPostContent('');
+          setAdditionalFiles([]);
+          setExistingAttachments([]);
+          if (createdBlog && createdBlog.id) {
+            setReadingPost(createdBlog);
+          }
         }
       }
     } catch (err) {
@@ -530,6 +608,116 @@ export function BlogView() {
       b.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchCat && matchSearch;
   });
+
+  const renderAttachmentPicker = (inputId: string) => (
+    <div className="pt-2 border-t border-slate-100 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+            <Paperclip className="w-3.5 h-3.5 text-blue-600" />
+            <span>Additional Attachments</span>
+            <span className="text-[10px] text-slate-400 font-normal">(Optional, accepts any file)</span>
+          </label>
+          <p className="text-[11px] text-slate-400">
+            Attach Python scripts (.py), configs, datasets (.zip), or any files for download
+          </p>
+        </div>
+        <label
+          htmlFor={inputId}
+          className="px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer flex items-center gap-1 transition-all border border-slate-200 shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5 text-blue-600" />
+          <span>Attach File</span>
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          multiple
+          accept="*"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              const files = Array.from(e.target.files);
+              setAdditionalFiles((prev) => [...prev, ...files]);
+              e.target.value = '';
+            }
+          }}
+        />
+      </div>
+
+      {/* Existing Attachments (if editing) */}
+      {existingAttachments.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Current Attachments</p>
+          {existingAttachments.map((att, idx) => (
+            <div
+              key={`exist-att-${idx}`}
+              className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+            >
+              <div className="flex items-center gap-2 truncate">
+                {att.name.toLowerCase().endsWith('.py') ? (
+                  <FileCode className="w-4 h-4 text-blue-600 shrink-0" />
+                ) : (
+                  <Paperclip className="w-4 h-4 text-slate-500 shrink-0" />
+                )}
+                <span className="font-bold text-slate-800 truncate">{att.name}</span>
+                <span className="text-[10px] text-slate-400">({att.sizeMB} MB)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExistingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                className="p-1 hover:bg-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                title="Remove attachment"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Newly Added Additional Files */}
+      {additionalFiles.length > 0 ? (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+            Files to Upload ({additionalFiles.length})
+          </p>
+          {additionalFiles.map((f, idx) => (
+            <div
+              key={`new-att-${idx}`}
+              className="flex items-center justify-between p-2 rounded-xl bg-blue-50/60 border border-blue-200 text-xs"
+            >
+              <div className="flex items-center gap-2 truncate">
+                {f.name.toLowerCase().endsWith('.py') ? (
+                  <FileCode className="w-4 h-4 text-blue-600 shrink-0" />
+                ) : (
+                  <Paperclip className="w-4 h-4 text-blue-500 shrink-0" />
+                )}
+                <span className="font-bold text-blue-950 truncate">{f.name}</span>
+                <span className="text-[10px] text-blue-600">
+                  ({(f.size / (1024 * 1024)).toFixed(2)} MB)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdditionalFiles((prev) => prev.filter((_, i) => i !== idx))}
+                className="p-1 hover:bg-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                title="Remove"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        existingAttachments.length === 0 && (
+          <div className="p-2.5 rounded-xl border border-dashed border-slate-200 text-center text-slate-400 text-[11px] bg-slate-50/40">
+            No additional attachments selected. Click <strong>"Attach File"</strong> to include supplementary code, configs, or files.
+          </div>
+        )
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -665,114 +853,127 @@ export function BlogView() {
             </div>
           </div>
 
-          {/* Embedded Office / PDF Attachment Banner */}
-          {readingPost.attachment && ['docx', 'pptx'].includes(readingPost.attachment.fileType) && (
-            <div className="mt-6 p-4 rounded-2xl bg-amber-50/70 border border-amber-200/90 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-                  <FileText className="w-5 h-5 text-amber-600" />
-                </div>
-                <div>
-                  <span className="font-extrabold text-xs text-slate-900 block">
-                    {readingPost.attachment.name}
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    Office Document • {readingPost.attachment.sizeMB} MB
-                  </span>
-                </div>
-              </div>
-              <a
-                href={readingPost.attachment.url}
-                download
-                className="px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Document</span>
-              </a>
-            </div>
-          )}
+          {/* Embedded PDF Viewer if any attachment is a PDF */}
+          {(() => {
+            const allAttachments: BlogAttachment[] = [
+              ...(readingPost.attachments || []),
+              ...(readingPost.attachment && !(readingPost.attachments || []).some((a) => a.url === readingPost.attachment?.url) ? [readingPost.attachment] : [])
+            ];
+            const pdfAttachment = allAttachments.find((a) => a.fileType === 'pdf' || a.name.toLowerCase().endsWith('.pdf'));
+            if (!pdfAttachment) return null;
 
-          {/* Embedded PDF Viewer if attachment is PDF */}
-          {readingPost.attachment && (readingPost.attachment.fileType === 'pdf' || readingPost.attachment.name.toLowerCase().endsWith('.pdf')) && (
-            <div className="mt-6 border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
-              <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-rose-500" />
-                  PDF Document: {readingPost.attachment.name}
-                </span>
-                <a
-                  href={readingPost.attachment.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 text-xs font-semibold flex items-center gap-1 underline"
-                >
-                  Open in New Tab ↗
-                </a>
-              </div>
-              <iframe
-                src={readingPost.attachment.url}
-                className="w-full h-[650px] bg-slate-100 border-none"
-                title={readingPost.attachment.name}
-              />
-            </div>
-          )}
-
-          {/* Embedded Python Script Attachment Banner */}
-          {readingPost.attachment && readingPost.attachment.name.toLowerCase().endsWith('.py') && (
-            <div className="mt-6 p-4 rounded-2xl bg-slate-900 text-white border border-slate-800 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-600/30 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
-                  <FileCode className="w-5 h-5 text-blue-400" />
-                </div>
-                <div>
-                  <span className="font-extrabold text-xs text-white block">
-                    {readingPost.attachment.name}
+            return (
+              <div className="mt-6 border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+                <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-rose-500" />
+                    PDF Document: {pdfAttachment.name}
                   </span>
-                  <span className="text-[11px] text-slate-400">
-                    Python Script Attachment • {readingPost.attachment.sizeMB} MB
-                  </span>
+                  <a
+                    href={pdfAttachment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-700 text-xs font-semibold flex items-center gap-1 underline"
+                  >
+                    Open in New Tab ↗
+                  </a>
                 </div>
+                <iframe
+                  src={pdfAttachment.url}
+                  className="w-full h-[650px] bg-slate-100 border-none"
+                  title={pdfAttachment.name}
+                />
               </div>
-              <a
-                href={readingPost.attachment.url}
-                download
-                className="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download .py Script</span>
-              </a>
-            </div>
-          )}
+            );
+          })()}
 
-          {/* Generic File Attachment Banner for other formats (.zip, .yaml, .json, .onnx, etc.) */}
-          {readingPost.attachment &&
-            !['docx', 'pptx', 'pdf'].includes(readingPost.attachment.fileType) &&
-            !readingPost.attachment.name.toLowerCase().endsWith('.pdf') &&
-            !readingPost.attachment.name.toLowerCase().endsWith('.py') && (
-              <div className="mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-200/90 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-200/80 text-slate-700 flex items-center justify-center shrink-0">
-                    <Paperclip className="w-5 h-5 text-slate-600" />
-                  </div>
-                  <div>
-                    <span className="font-extrabold text-xs text-slate-900 block">
-                      {readingPost.attachment.name}
+          {/* Downloadable Attachments & Resources Section (All Files) */}
+          {(() => {
+            const allAttachments: BlogAttachment[] = [
+              ...(readingPost.attachments || []),
+              ...(readingPost.attachment && !(readingPost.attachments || []).some((a) => a.url === readingPost.attachment?.url) ? [readingPost.attachment] : [])
+            ];
+            if (allAttachments.length === 0) return null;
+
+            return (
+              <div className="mt-6 p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md">
+                <div className="flex items-center justify-between gap-3 mb-3 pb-2.5 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="w-4 h-4 text-blue-400" />
+                    <span className="font-extrabold text-xs sm:text-sm text-white">
+                      Downloadable Attachments & Resources
                     </span>
-                    <span className="text-[11px] text-slate-500">
-                      File Attachment Resource • {readingPost.attachment.sizeMB} MB
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      {allAttachments.length} {allAttachments.length === 1 ? 'Resource' : 'Resources'}
                     </span>
                   </div>
+                  <span className="text-[11px] text-slate-400 font-medium hidden sm:inline-block">
+                    Click download to retrieve resource
+                  </span>
                 </div>
-                <a
-                  href={readingPost.attachment.url}
-                  download
-                  className="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Attachment</span>
-                </a>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {allAttachments.map((att, idx) => {
+                    const ext = att.name.split('.').pop()?.toLowerCase() || '';
+                    const isPy = ext === 'py';
+                    const isZip = ext === 'zip' || ext === 'tar' || ext === 'gz';
+                    const isPdf = ext === 'pdf';
+                    const isDoc = ext === 'doc' || ext === 'docx' || ext === 'ppt' || ext === 'pptx';
+
+                    return (
+                      <div
+                        key={`att-item-${idx}`}
+                        className="p-3 rounded-2xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 flex items-center justify-between gap-3 transition-colors group"
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              isPy
+                                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                : isZip
+                                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                : isPdf
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : isDoc
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-slate-700 text-slate-300'
+                            }`}
+                          >
+                            {isPy ? (
+                              <FileCode className="w-4 h-4" />
+                            ) : isZip ? (
+                              <Package className="w-4 h-4" />
+                            ) : isPdf || isDoc ? (
+                              <FileText className="w-4 h-4" />
+                            ) : (
+                              <Paperclip className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="truncate">
+                            <span className="font-bold text-xs text-white block truncate group-hover:text-blue-300 transition-colors">
+                              {att.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {ext ? `.${ext.toUpperCase()} • ` : ''}{att.sizeMB} MB
+                            </span>
+                          </div>
+                        </div>
+
+                        <a
+                          href={att.url}
+                          download={att.name}
+                          className="px-3.5 py-1.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all shrink-0 cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download</span>
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+            );
+          })()}
 
           {/* Document Content with Markdown Image & Text Parsing */}
           <div className="py-8 max-w-none text-xs sm:text-sm leading-relaxed text-slate-800">
@@ -899,13 +1100,21 @@ export function BlogView() {
                       })()}
 
                       {/* Attachment Pill if available */}
-                      {post.attachment && (() => {
-                        const ext = post.attachment.name.split('.').pop()?.toLowerCase() || '';
+                      {(() => {
+                        const allCardAtts: BlogAttachment[] = [
+                          ...(post.attachments || []),
+                          ...(post.attachment && !(post.attachments || []).some((a) => a.url === post.attachment?.url) ? [post.attachment] : [])
+                        ];
+                        if (allCardAtts.length === 0) return null;
+
+                        const firstAtt = allCardAtts[0];
+                        const ext = firstAtt.name.split('.').pop()?.toLowerCase() || '';
                         const isPy = ext === 'py';
                         const isPdf = ext === 'pdf';
                         const isWord = ext === 'doc' || ext === 'docx';
                         const isSlides = ext === 'ppt' || ext === 'pptx';
                         const isMd = ext === 'md' || ext === 'txt';
+                        const isZip = ext === 'zip' || ext === 'tar' || ext === 'gz';
 
                         const pillColor = isPy
                           ? 'bg-blue-50/90 border-blue-200 text-blue-950'
@@ -915,21 +1124,15 @@ export function BlogView() {
                           ? 'bg-blue-50/80 border-blue-200 text-blue-950'
                           : isSlides
                           ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                          : isZip
+                          ? 'bg-purple-50/80 border-purple-200 text-purple-950'
                           : isMd
                           ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
                           : 'bg-slate-50/90 border-slate-200 text-slate-800';
 
                         const btnColor = isPy
                           ? 'bg-blue-600 text-white hover:bg-blue-700'
-                          : isPdf
-                          ? 'bg-rose-100 text-rose-900 hover:bg-rose-200'
-                          : isWord
-                          ? 'bg-blue-100 text-blue-900 hover:bg-blue-200'
-                          : isSlides
-                          ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
-                          : isMd
-                          ? 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200'
-                          : 'bg-slate-200 text-slate-900 hover:bg-slate-300';
+                          : 'bg-slate-900 text-white hover:bg-slate-800';
 
                         return (
                           <div
@@ -939,20 +1142,23 @@ export function BlogView() {
                             <div className="flex items-center gap-2 truncate">
                               {isPy ? (
                                 <FileCode className="w-4 h-4 text-blue-600 shrink-0" />
+                              ) : isZip ? (
+                                <Package className="w-4 h-4 text-purple-600 shrink-0" />
                               ) : (
-                                <FileText className="w-4 h-4 shrink-0 opacity-80" />
+                                <Paperclip className="w-4 h-4 shrink-0 opacity-80" />
                               )}
                               <span className="text-xs font-bold truncate">
-                                {post.attachment.name}
+                                {firstAtt.name}
+                                {allCardAtts.length > 1 ? ` (+${allCardAtts.length - 1} more)` : ''}
                               </span>
                             </div>
                             <a
-                              href={post.attachment.url}
-                              download
+                              href={firstAtt.url}
+                              download={firstAtt.name}
                               className={`px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 flex items-center gap-1 transition-colors ${btnColor}`}
                             >
                               <Download className="w-3 h-3" />
-                              <span>{post.attachment.sizeMB} MB</span>
+                              <span>{allCardAtts.length > 1 ? `${allCardAtts.length} files` : `${firstAtt.sizeMB} MB`}</span>
                             </a>
                           </div>
                         );
@@ -1048,6 +1254,9 @@ export function BlogView() {
                 onClick={() => {
                   setShowCreateModal(false);
                   setEditingBlogId(null);
+                  setUploadedFile(null);
+                  setAdditionalFiles([]);
+                  setExistingAttachments([]);
                 }}
                 className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 shrink-0"
               >
@@ -1239,10 +1448,18 @@ export function BlogView() {
                   ></textarea>
                 </div>
 
+                {/* Additional Attachments */}
+                {renderAttachmentPicker('extra-files-upload')}
+
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setUploadedFile(null);
+                      setAdditionalFiles([]);
+                      setExistingAttachments([]);
+                    }}
                     className="px-4 py-2 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-100"
                   >
                     Cancel
@@ -1347,12 +1564,18 @@ export function BlogView() {
                   </div>
                 </div>
 
+                {/* Additional Attachments */}
+                {renderAttachmentPicker('extra-files-custom')}
+
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setShowCreateModal(false);
                       setEditingBlogId(null);
+                      setUploadedFile(null);
+                      setAdditionalFiles([]);
+                      setExistingAttachments([]);
                     }}
                     className="px-4 py-2 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-100"
                   >

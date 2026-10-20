@@ -78,7 +78,7 @@ export function InventoryView() {
     category: 'Edge Device' as any,
     assetTag: '',
     specs: '',
-    location: 'Office Lab Rack A',
+    location: 'B-4-10',
     serialNumber: '',
     quantity: 1,
     availableQuantity: 1,
@@ -93,7 +93,7 @@ export function InventoryView() {
     name: '',
     category: 'Edge Device' as any,
     specs: '',
-    location: 'Office Lab Rack A',
+    location: 'B-4-10',
     serialNumber: '',
     quantity: 1,
     link: '',
@@ -101,7 +101,8 @@ export function InventoryView() {
   });
 
   // Add Stock Form
-  const [addStockQty, setAddStockQty] = useState(1);
+  const [addStockQty, setAddStockQty] = useState<number | string>(1);
+  const [addStockError, setAddStockError] = useState<string | null>(null);
 
   // Borrow Form (Internal check out)
   const [borrowForm, setBorrowForm] = useState({
@@ -197,7 +198,11 @@ export function InventoryView() {
   }, [hardware]);
 
   const locationSuggestions = useMemo(() => {
-    return Array.from(new Set(hardware.map((h) => h.location?.trim()).filter(Boolean)));
+    const list = Array.from(new Set(hardware.map((h) => h.location?.trim()).filter(Boolean)));
+    if (!list.includes('B-4-10')) {
+      list.unshift('B-4-10');
+    }
+    return list;
   }, [hardware]);
 
   const personSuggestions = useMemo(() => {
@@ -337,7 +342,7 @@ export function InventoryView() {
           name: '',
           category: 'Edge Device',
           specs: '',
-          location: 'Office Lab Rack A',
+          location: 'B-4-10',
           serialNumber: '',
           quantity: 1,
           link: '',
@@ -356,7 +361,7 @@ export function InventoryView() {
       category: item.category || 'Edge Device',
       assetTag: item.assetTag || '',
       specs: item.specs || '',
-      location: item.location || 'Office Lab Rack A',
+      location: item.location || 'B-4-10',
       serialNumber: item.serialNumber || '',
       quantity: item.quantity || 1,
       availableQuantity: item.availableQuantity || 1,
@@ -403,6 +408,12 @@ export function InventoryView() {
     e.preventDefault();
     if (!showAddStockModal) return;
 
+    const num = Number(addStockQty);
+    if (isNaN(num) || num <= 0) {
+      setAddStockError('Invalid number. Stock quantity must be 1 or more.');
+      return;
+    }
+
     try {
       const res = await fetch('/api/inventory', {
         method: 'PATCH',
@@ -410,12 +421,13 @@ export function InventoryView() {
         body: JSON.stringify({
           id: showAddStockModal.id,
           action: 'add_stock',
-          quantity: addStockQty
+          quantity: num
         })
       });
       if (res.ok) {
         setShowAddStockModal(null);
         setAddStockQty(1);
+        setAddStockError(null);
         await loadHardware();
       }
     } catch (err) {
@@ -508,7 +520,7 @@ export function InventoryView() {
         console.error('Failed to return hardware from onsite:', errData);
       }
     } catch (err) {
-      console.error('Return to lab error:', err);
+      console.error('Return to office error:', err);
     } finally {
       setReturningRecordId(null);
     }
@@ -557,10 +569,10 @@ export function InventoryView() {
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-2 border-b border-slate-200">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
-            Hardware & Lab Assets
+            Hardware & Office Assets
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Internal office workstation allocation, lab storage inventory, and onsite project deployments
+            Internal office workstation allocation, office storage inventory, and onsite project deployments
           </p>
         </div>
 
@@ -570,7 +582,7 @@ export function InventoryView() {
               name: '',
               category: 'Edge Device',
               specs: '',
-              location: 'Office Lab Rack A',
+              location: 'B-4-10',
               serialNumber: '',
               quantity: 1,
               link: '',
@@ -599,7 +611,7 @@ export function InventoryView() {
             <Package className="w-4 h-4 text-blue-600 shrink-0" />
             <span>In-House</span>
             <span className="hidden xs:inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
-              {uniqueDevices.length} Models • {totalInHouseAvailable} In Lab
+              {uniqueDevices.length} Models • {totalInHouseAvailable} In Office
             </span>
           </button>
 
@@ -627,7 +639,7 @@ export function InventoryView() {
         <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 text-xs w-full sm:w-auto">
           <div className="p-2 sm:px-3.5 sm:py-1.5 rounded-xl bg-white border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-center sm:text-left">
             <span className="w-2 h-2 rounded-full bg-emerald-500 mx-auto sm:mx-0 shrink-0"></span>
-            <span className="text-slate-500 font-medium text-[10px] sm:text-xs">Lab:</span>
+            <span className="text-slate-500 font-medium text-[10px] sm:text-xs">Office:</span>
             <span className="font-extrabold text-slate-800 text-xs sm:text-sm">{totalInHouseAvailable}</span>
           </div>
 
@@ -750,7 +762,7 @@ export function InventoryView() {
                     {/* Stock & Location Bar */}
                     <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                       <div>
-                        <span className="text-[10px] text-slate-400 block font-medium">In Lab Stock</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">In Office Stock</span>
                         <span className="font-black text-slate-900 text-sm">{item.availableQuantity}</span>
                         <span className="text-[10px] text-slate-400"> / {item.quantity} total</span>
                       </div>
@@ -783,6 +795,7 @@ export function InventoryView() {
                           onClick={() => {
                             setShowAddStockModal(item);
                             setAddStockQty(1);
+                            setAddStockError(null);
                           }}
                           className="flex-1 py-1.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-[11px] flex items-center justify-center gap-1 transition-colors border border-slate-200/80 cursor-pointer"
                         >
@@ -963,7 +976,7 @@ export function InventoryView() {
                             <div className="flex items-center gap-1 text-[10px] font-bold">
                               {item.availableQuantity > 0 && (
                                 <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
-                                  {item.availableQuantity} in lab
+                                  {item.availableQuantity} in office
                                 </span>
                               )}
                               {borrowedCount > 0 && (
@@ -993,7 +1006,7 @@ export function InventoryView() {
                           {item.availableQuantity > 0 ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              Ready In Lab
+                              Ready In Office
                             </span>
                           ) : onsiteCount > 0 ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
@@ -1015,6 +1028,7 @@ export function InventoryView() {
                               onClick={() => {
                                 setShowAddStockModal(item);
                                 setAddStockQty(1);
+                                setAddStockError(null);
                               }}
                               title="Add stock units to this device"
                               className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-[11px] flex items-center gap-1 transition-colors border border-slate-200/80"
@@ -1180,7 +1194,7 @@ export function InventoryView() {
                       ) : (
                         <CornerUpLeft className="w-3.5 h-3.5" />
                       )}
-                      <span>Return Hardware to Lab</span>
+                      <span>Return Hardware to Office</span>
                     </button>
                   )}
                 </div>
@@ -1197,7 +1211,7 @@ export function InventoryView() {
                   <span>Active Onsite Project Deployments</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Any hardware taken out for client projects is registered here until checked back in to the lab
+                  Any hardware taken out for client projects is registered here until checked back in to the office
                 </p>
               </div>
 
@@ -1292,7 +1306,7 @@ export function InventoryView() {
                               className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] flex items-center gap-1.5 ml-auto shadow-sm transition-all disabled:opacity-50"
                             >
                               <RotateCcw className={`w-3.5 h-3.5 ${returningRecordId === d.recordId ? 'animate-spin' : ''}`} />
-                              <span>{returningRecordId === d.recordId ? 'Returning...' : 'Return to Lab'}</span>
+                              <span>{returningRecordId === d.recordId ? 'Returning...' : 'Return to Office'}</span>
                             </button>
                           ) : (
                             <span className="text-[11px] font-bold text-slate-400">
@@ -1355,7 +1369,7 @@ export function InventoryView() {
                           name: val,
                           category: match.category || prev.category,
                           specs: (!prev.specs || prev.specs === 'Standard Specification') ? match.specs : prev.specs,
-                          location: (!prev.location || prev.location === 'Office Lab Rack A') ? match.location : prev.location
+                          location: (!prev.location || prev.location === 'Office Lab Rack A' || prev.location === 'B-4-10') ? match.location : prev.location
                         }));
                       } else {
                         setHwForm((prev) => ({ ...prev, name: val }));
@@ -1396,7 +1410,10 @@ export function InventoryView() {
                     min="1"
                     required
                     value={hwForm.quantity}
-                    onChange={(e) => setHwForm({ ...hwForm, quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setHwForm({ ...hwForm, quantity: val === '' ? ('' as any) : parseInt(val) || 0 });
+                    }}
                     className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 font-bold"
                   />
                 </div>
@@ -1457,12 +1474,12 @@ export function InventoryView() {
 
                 <div className="col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Office / Lab Storage Location
+                    Office Storage Location
                   </label>
                   <input
                     type="text"
                     list="hw-location-suggestions"
-                    placeholder="e.g. Office Lab Rack A, Drawer 3"
+                    placeholder="e.g. B-4-10, Shelf 2"
                     value={hwForm.location}
                     onChange={(e) => setHwForm({ ...hwForm, location: e.target.value })}
                     className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200"
@@ -1524,7 +1541,7 @@ export function InventoryView() {
               <div className="flex items-center gap-3 mt-2 text-xs font-bold text-blue-950">
                 <span>Current Total: {showAddStockModal.quantity}</span>
                 <span>•</span>
-                <span>In Lab: {showAddStockModal.availableQuantity}</span>
+                <span>In Office: {showAddStockModal.availableQuantity}</span>
               </div>
             </div>
 
@@ -1538,24 +1555,52 @@ export function InventoryView() {
                   min="1"
                   required
                   value={addStockQty}
-                  onChange={(e) => setAddStockQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setAddStockQty(raw);
+                    if (raw === '') {
+                      setAddStockError('Please enter a stock quantity.');
+                    } else {
+                      const num = Number(raw);
+                      if (isNaN(num) || num <= 0) {
+                        setAddStockError('Invalid number. Quantity must be 1 or more.');
+                      } else {
+                        setAddStockError(null);
+                      }
+                    }
+                  }}
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-black text-slate-900 focus:outline-none focus:ring-2 ${
+                    addStockError
+                      ? 'border-rose-300 focus:ring-rose-500/20 bg-rose-50/20'
+                      : 'border-slate-200 focus:ring-blue-500/20'
+                  }`}
+                  placeholder="Enter quantity to add"
                 />
+                {addStockError && (
+                  <div className="flex items-center gap-1.5 mt-2 text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200 animate-in fade-in">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{addStockError}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setShowAddStockModal(null)}
+                  onClick={() => {
+                    setShowAddStockModal(null);
+                    setAddStockError(null);
+                  }}
                   className="px-4 py-2 rounded-full border border-slate-200 text-xs font-bold text-slate-600"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20"
+                  disabled={Boolean(addStockError) || !addStockQty || Number(addStockQty) <= 0}
+                  className="px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Confirm +{addStockQty} Units
+                  Confirm +{addStockQty || 0} Units
                 </button>
               </div>
             </form>
@@ -1564,7 +1609,7 @@ export function InventoryView() {
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* MODAL 3: BORROW (Internal Office / Lab Loan) */}
+      {/* MODAL 3: BORROW (Internal Office Loan) */}
       {/* ------------------------------------------------------------- */}
       {showBorrowModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in">
@@ -1590,7 +1635,7 @@ export function InventoryView() {
               <p className="text-xs font-extrabold text-slate-900">{showBorrowModal.name}</p>
               <p className="text-[11px] text-slate-500">{showBorrowModal.specs}</p>
               <p className="text-[11px] font-bold text-emerald-700 mt-1">
-                Available in Lab: {showBorrowModal.availableQuantity} units
+                Available in Office: {showBorrowModal.availableQuantity} units
               </p>
             </div>
 
@@ -1605,15 +1650,13 @@ export function InventoryView() {
                   max={showBorrowModal.availableQuantity}
                   required
                   value={borrowForm.quantity}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const val = e.target.value;
                     setBorrowForm({
                       ...borrowForm,
-                      quantity: Math.min(
-                        showBorrowModal.availableQuantity,
-                        Math.max(1, parseInt(e.target.value) || 1)
-                      )
-                    })
-                  }
+                      quantity: val === '' ? ('' as any) : Math.min(showBorrowModal.availableQuantity, Math.max(1, parseInt(val) || 1))
+                    });
+                  }}
                   className="w-full px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200"
                 />
               </div>
@@ -1732,15 +1775,13 @@ export function InventoryView() {
                     max={showTakeoutModal.availableQuantity}
                     required
                     value={takeoutForm.quantity}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const val = e.target.value;
                       setTakeoutForm({
                         ...takeoutForm,
-                        quantity: Math.min(
-                          showTakeoutModal.availableQuantity,
-                          Math.max(1, parseInt(e.target.value) || 1)
-                        )
-                      })
-                    }
+                        quantity: val === '' ? ('' as any) : Math.min(showTakeoutModal.availableQuantity, Math.max(1, parseInt(val) || 1))
+                      });
+                    }}
                     className="w-full px-3.5 py-2 rounded-xl text-xs font-black border border-slate-200"
                   />
                 </div>

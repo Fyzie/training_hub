@@ -191,6 +191,13 @@ export type GuidanceCategory =
   | 'SOP'
   | string;
 
+export interface BlogAttachment {
+  name: string;
+  url: string;
+  fileType: 'pdf' | 'docx' | 'pptx' | 'zip' | 'md' | 'py' | 'other' | string;
+  sizeMB: number;
+}
+
 export interface BlogPost {
   id: string;
   title: string;
@@ -207,12 +214,8 @@ export interface BlogPost {
   createdAt: string;
   updatedAt: string;
   hasAttachment: boolean;
-  attachment?: {
-    name: string;
-    url: string;
-    fileType: 'pdf' | 'docx' | 'pptx' | 'zip' | 'md' | 'py' | 'other' | string;
-    sizeMB: number;
-  };
+  attachment?: BlogAttachment;
+  attachments?: BlogAttachment[];
   coverImage?: string;
   views: number;
   likes: number;

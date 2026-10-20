@@ -24,8 +24,14 @@ export async function PUT(
     }
     if ('attachment' in body) {
       blog.attachment = body.attachment;
-      blog.hasAttachment = Boolean(body.attachment);
     }
+    if ('attachments' in body) {
+      blog.attachments = body.attachments;
+      if (!blog.attachment && body.attachments && body.attachments.length > 0) {
+        blog.attachment = body.attachments[0];
+      }
+    }
+    blog.hasAttachment = Boolean(blog.attachment || (blog.attachments && blog.attachments.length > 0));
     blog.updatedAt = new Date().toISOString();
 
     dataStore.saveBlogs(blogs);
