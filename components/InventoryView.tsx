@@ -82,20 +82,21 @@ export function InventoryView() {
     serialNumber: '',
     quantity: 1,
     availableQuantity: 1,
+    link: '',
     notes: ''
   });
 
   const [returningRecordId, setReturningRecordId] = useState<string | null>(null);
 
-  // Add Hardware Form
+  // Add Hardware Form (asset tag auto-generated; link drop is optional)
   const [hwForm, setHwForm] = useState({
     name: '',
     category: 'Edge Device' as any,
-    assetTag: '',
     specs: '',
     location: 'Office Lab Rack A',
     serialNumber: '',
     quantity: 1,
+    link: '',
     notes: ''
   });
 
@@ -334,18 +335,66 @@ export function InventoryView() {
         setShowAddModal(false);
         setHwForm({
           name: '',
-          category: 'GPU',
-          assetTag: '',
+          category: 'Edge Device',
           specs: '',
           location: 'Office Lab Rack A',
           serialNumber: '',
           quantity: 1,
+          link: '',
           notes: ''
         });
         await loadHardware();
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const openEditModal = (item: HardwareItem) => {
+    setEditForm({
+      name: item.name || '',
+      category: item.category || 'Edge Device',
+      assetTag: item.assetTag || '',
+      specs: item.specs || '',
+      location: item.location || 'Office Lab Rack A',
+      serialNumber: item.serialNumber || '',
+      quantity: item.quantity || 1,
+      availableQuantity: item.availableQuantity || 1,
+      link: item.link || '',
+      notes: item.notes || ''
+    });
+    setShowEditModal(item);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showEditModal) return;
+    setIsSavingEdit(true);
+    try {
+      const res = await fetch('/api/inventory', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: showEditModal.id,
+          name: editForm.name.trim(),
+          category: editForm.category,
+          specs: editForm.specs.trim(),
+          location: editForm.location.trim(),
+          serialNumber: editForm.serialNumber.trim(),
+          quantity: editForm.quantity,
+          availableQuantity: editForm.availableQuantity,
+          notes: editForm.notes.trim(),
+          link: editForm.link.trim()
+        })
+      });
+      if (res.ok) {
+        setShowEditModal(null);
+        await loadHardware();
+      }
+    } catch (err) {
+      console.error('Failed to update hardware:', err);
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -519,12 +568,12 @@ export function InventoryView() {
           onClick={() => {
             setHwForm({
               name: '',
-              category: 'GPU',
-              assetTag: '',
+              category: 'Edge Device',
               specs: '',
               location: 'Office Lab Rack A',
               serialNumber: '',
               quantity: 1,
+              link: '',
               notes: ''
             });
             setShowAddModal(true);
@@ -776,6 +825,24 @@ export function InventoryView() {
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
+                        {item.link && (
+                          <a
+                            href={item.link.startsWith('http') ? item.link : `https://${item.link}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title="Documentation / Spec Link"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                        <button
+                          onClick={() => openEditModal(item)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                          title="Edit Details"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => setShowHistoryModal(item)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
@@ -995,11 +1062,33 @@ export function InventoryView() {
                               <span>Take Out</span>
                             </button>
 
+                            {/* Link Drop */}
+                            {item.link && (
+                              <a
+                                href={item.link.startsWith('http') ? item.link : `https://${item.link}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Documentation / Spec Link"
+                                className="p-1 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+
+                            {/* Edit */}
+                            <button
+                              onClick={() => openEditModal(item)}
+                              title="Edit hardware details"
+                              className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+
                             {/* History Log */}
                             <button
                               onClick={() => setShowHistoryModal(item)}
                               title="View borrow & deployment history"
-                              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ml-1"
+                              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ml-0.5"
                             >
                               <History className="w-3.5 h-3.5" />
                             </button>
@@ -1314,21 +1403,18 @@ export function InventoryView() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Asset Tag Prefix
+                    Link Drop / Doc URL <span className="text-slate-400 font-normal">(Optional)</span>
                   </label>
-                  <input
-                    type="text"
-                    list="hw-asset-tag-suggestions"
-                    placeholder="e.g. JETSON-01"
-                    value={hwForm.assetTag}
-                    onChange={(e) => setHwForm({ ...hwForm, assetTag: e.target.value })}
-                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 font-mono"
-                  />
-                  <datalist id="hw-asset-tag-suggestions">
-                    {assetTagSuggestions.map((tag, i) => (
-                      <option key={`htag-${i}`} value={tag} />
-                    ))}
-                  </datalist>
+                  <div className="relative">
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="url"
+                      placeholder="https://datasheet.com or wiki"
+                      value={hwForm.link}
+                      onChange={(e) => setHwForm({ ...hwForm, link: e.target.value })}
+                      className="w-full pl-9 pr-3.5 py-2 rounded-xl text-xs border border-slate-200"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -1846,6 +1932,147 @@ export function InventoryView() {
                 })
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 6: EDIT HARDWARE ITEM */}
+      {/* ------------------------------------------------------------- */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-7 max-w-lg w-full border border-slate-100 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+            <button
+              onClick={() => setShowEditModal(null)}
+              className="absolute top-5 right-5 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <Pencil className="w-5 h-5 text-blue-600" />
+              <h3 className="font-extrabold text-lg text-slate-900">
+                Edit Hardware Asset
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-5">
+              Update device specifications, storage location, or documentation link.
+            </p>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Device Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 font-semibold"
+                  />
+                </div>
+
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Category *
+                  </label>
+                  <select
+                    value={editForm.category}
+                    onChange={(e) => setEditForm({ ...editForm, category: e.target.value as any })}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 bg-white font-semibold"
+                  >
+                    <option value="Edge Device">Edge Device</option>
+                    <option value="Camera">Camera</option>
+                    <option value="Lenses">Lenses</option>
+                    <option value="Lighting">Lighting</option>
+                    <option value="Peripheral">Peripheral</option>
+                  </select>
+                </div>
+
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Serial Number
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.serialNumber}
+                    onChange={(e) => setEditForm({ ...editForm, serialNumber: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 font-mono"
+                  />
+                </div>
+
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Storage Location
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.location}
+                    onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Hardware Specifications
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.specs}
+                    onChange={(e) => setEditForm({ ...editForm, specs: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Link Drop / Documentation URL (Optional)
+                  </label>
+                  <div className="relative">
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="url"
+                      placeholder="https://datasheet-link.com or company wiki"
+                      value={editForm.link}
+                      onChange={(e) => setEditForm({ ...editForm, link: e.target.value })}
+                      className="w-full pl-9 pr-3.5 py-2 rounded-xl text-xs border border-slate-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(null)}
+                  className="px-4 py-2 rounded-full border border-slate-200 text-xs font-bold text-slate-600 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

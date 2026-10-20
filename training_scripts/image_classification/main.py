@@ -137,10 +137,11 @@ def generate_classification_val_comparison(output_dir: str, classes: list, datas
     collage = Image.new("RGB", (canvas_w, canvas_h), color=(248, 250, 252))
     draw = ImageDraw.Draw(collage)
 
-    # Header banner
-    draw.rectangle([(0, 0), (canvas_w, 48)], fill=(15, 23, 42))
-    draw.text((20, 14), "MobileNetV4 Classification - Validation Predictions vs Ground Truth", fill=(255, 255, 255))
-    draw.text((canvas_w - 240, 16), f"Classes: {', '.join(classes[:4])}", fill=(148, 163, 184))
+    # Header banner (Clean White / Dark Slate)
+    draw.rectangle([(0, 0), (canvas_w, 48)], fill=(255, 255, 255))
+    draw.line([(0, 48), (canvas_w, 48)], fill=(226, 232, 240), width=1)
+    draw.text((20, 14), "MobileNetV4 Classification - Validation Predictions vs Ground Truth", fill=(15, 23, 42))
+    draw.text((canvas_w - 240, 16), f"Classes: {', '.join(classes[:4])}", fill=(71, 85, 105))
 
     # Collect sample image files if any exist
     sample_images = []
@@ -446,6 +447,13 @@ created_at: "{datetime.utcnow().isoformat()}"
 
         # 9. Save single val_comparison.png (strictly NO comparison_collage.png)
         generate_classification_val_comparison(str(out_path), classes, resolved_dataset or dataset_dir)
+
+        # 9.5. Save confusion_matrix.png & confusion_matrix.json
+        try:
+            from scripts.confusion_matrix import generate_confusion_matrix
+            generate_confusion_matrix(str(out_path), classes, job_id=run_name)
+        except Exception as e:
+            print(f"[Warning] Failed to generate classification confusion matrix: {e}")
 
         # 10. Pack result_bundle.zip
         zip_path = out_path / "result_bundle.zip"

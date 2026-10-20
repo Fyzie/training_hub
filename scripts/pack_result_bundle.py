@@ -280,6 +280,28 @@ created_at: "{datetime.utcnow().isoformat()}"
     except Exception as e:
         print(f"[Warning] Failed to generate comparison collage: {e}", file=sys.stderr)
 
+    # 7.5 Generate Confusion Matrix for all model templates
+    cm_png_path = job_dir / "confusion_matrix.png"
+    cm_json_path = job_dir / "confusion_matrix.json"
+    try:
+        from scripts.confusion_matrix import generate_confusion_matrix
+        dataset_classes = hyperparameters.get("classes") or []
+        if not dataset_classes and dataset_dir:
+            for cand_sub in ["valid", "train", ""]:
+                ann_cand = Path(dataset_dir) / cand_sub / "annotation.json"
+                if ann_cand.exists():
+                    try:
+                        with open(ann_cand, "r", encoding="utf-8") as af:
+                            ann_d = json.load(af)
+                            dataset_classes = [c.get("name") for c in ann_d.get("categories", []) if c.get("name")]
+                            if dataset_classes:
+                                break
+                    except Exception:
+                        pass
+        generate_confusion_matrix(str(job_dir), dataset_classes, job_id=job_id)
+    except Exception as e:
+        print(f"[Warning] Failed to generate confusion matrix: {e}", file=sys.stderr)
+
     # 8. Pack complete result_bundle.zip containing all standard files
     zip_path = job_dir / "result_bundle.zip"
     with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
@@ -294,6 +316,8 @@ created_at: "{datetime.utcnow().isoformat()}"
             metadata_file,
             metrics_file,
             val_img_path,
+            cm_png_path,
+            cm_json_path,
             weights_dir / "best_rfdetr_weights.pt"
         ]:
             if fpath.exists():

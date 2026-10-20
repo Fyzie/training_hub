@@ -284,9 +284,6 @@ export function Navbar({
               >
                 <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
                 <span className="whitespace-nowrap">{item.label}</span>
-                {item.id === 'training' && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                )}
               </button>
             );
           })}
@@ -721,9 +718,6 @@ export function Navbar({
                     <Icon className={`w-4 h-4 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
                     <span className="text-xs font-semibold">{item.label}</span>
                   </div>
-                  {item.id === 'training' && (
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                  )}
                 </button>
               );
             })}

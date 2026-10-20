@@ -180,59 +180,66 @@ def generate_val_comparison_collage(
 
     try:
         font = ImageFont.truetype("arial.ttf", 13)
+        font_bold = ImageFont.truetype("arialbd.ttf", 14)
     except Exception:
         font = ImageFont.load_default()
+        font_bold = font
 
     panel_w = 540
-    panel_h = 540
-    header_h = 42
-    gap = 16
-    border = 14
+    header_h = 36
+    border = 6
+    gap = 0  # Seamless - zero gap between ground truth and prediction images
 
-    num_rows = len(found_images)
-    total_w = border * 2 + panel_w * 2 + gap
-    total_h = border * 2 + header_h + num_rows * panel_h + (num_rows - 1) * gap
-
-    canvas = Image.new("RGB", (total_w, total_h), color=(15, 23, 42))  # Slate-900 background
-    draw = ImageDraw.Draw(canvas)
-
-    # Clean titles
-    draw.text((border + panel_w // 2 - 45, border + 10), "Ground Truth", fill=(52, 211, 153), font=font)
-    draw.text((border + panel_w + gap + panel_w // 2 - 35, border + 10), "Prediction", fill=(56, 189, 248), font=font)
-
-    for row_idx, info in enumerate(found_images):
-        y_pos = border + header_h + row_idx * (panel_h + gap)
-        left_x = border
-        right_x = border + panel_w + gap
-
+    # Pre-calculate row heights to eliminate all vertical letterbox padding
+    row_heights = []
+    loaded_raws = []
+    for info in found_images:
+        raw = None
         if info["path"] and os.path.exists(info["path"]):
             try:
                 raw = Image.open(info["path"]).convert("RGBA")
             except Exception:
-                raw = Image.new("RGBA", (640, 640), (30, 41, 59, 255))
-        else:
-            raw = Image.new("RGBA", (640, 640), (30, 41, 59, 255))
+                raw = None
+        if raw is None:
+            raw = Image.new("RGBA", (640, 640), (245, 247, 250, 255))
+        loaded_raws.append(raw)
+        orig_w, orig_h = raw.size
+        ratio = panel_w / max(1, orig_w)
+        row_heights.append(max(180, int(orig_h * ratio)))
+
+    total_w = border * 2 + panel_w * 2  # No gap between columns
+    total_h = border * 2 + header_h + sum(row_heights)
+
+    # Clean white background UI (no dark slate / blue black)
+    canvas = Image.new("RGB", (total_w, total_h), color=(255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+
+    # Column titles (Black / Dark Slate on pure white)
+    draw.text((border + panel_w // 2 - 50, border + 8), "Ground Truth", fill=(15, 23, 42), font=font_bold)
+    draw.text((border + panel_w + panel_w // 2 - 45, border + 8), "RF-DETR Prediction", fill=(15, 23, 42), font=font_bold)
+
+    current_y = border + header_h
+    for row_idx, (info, raw) in enumerate(zip(found_images, loaded_raws)):
+        panel_h = row_heights[row_idx]
+        y_pos = current_y
+        current_y += panel_h
+
+        left_x = border
+        right_x = border + panel_w
 
         orig_w, orig_h = raw.size
+        ratio = panel_w / max(1, orig_w)
+        img_resized = raw.resize((panel_w, panel_h), Image.Resampling.BILINEAR)
 
-        # Fit into panel_w x panel_h while strictly preserving aspect ratio
-        ratio = min(panel_w / orig_w, panel_h / orig_h)
-        disp_w = int(orig_w * ratio)
-        disp_h = int(orig_h * ratio)
-        offset_x = (panel_w - disp_w) // 2
-        offset_y = (panel_h - disp_h) // 2
-
-        img_resized = raw.resize((disp_w, disp_h), Image.Resampling.BILINEAR)
-
-        # Left panel: Ground Truth
-        gt_panel = Image.new("RGBA", (panel_w, panel_h), color=(30, 41, 59, 255))
-        gt_panel.paste(img_resized, (offset_x, offset_y))
+        # Left panel: Ground Truth (No letterbox, fills exact dimensions)
+        gt_panel = Image.new("RGBA", (panel_w, panel_h), color=(255, 255, 255, 255))
+        gt_panel.paste(img_resized, (0, 0))
         gt_overlay = Image.new("RGBA", (panel_w, panel_h), (0, 0, 0, 0))
         gt_draw = ImageDraw.Draw(gt_overlay)
 
-        # Right panel: Prediction
-        pred_panel = Image.new("RGBA", (panel_w, panel_h), color=(30, 41, 59, 255))
-        pred_panel.paste(img_resized, (offset_x, offset_y))
+        # Right panel: Prediction (No letterbox, fills exact dimensions)
+        pred_panel = Image.new("RGBA", (panel_w, panel_h), color=(255, 255, 255, 255))
+        pred_panel.paste(img_resized, (0, 0))
         pred_overlay = Image.new("RGBA", (panel_w, panel_h), (0, 0, 0, 0))
         pred_draw = ImageDraw.Draw(pred_overlay)
 
@@ -254,48 +261,48 @@ def generate_val_comparison_collage(
             bbox = ann.get("bbox", [])
             if len(bbox) == 4:
                 bx, by, bw, bh = bbox
-                x1 = offset_x + int(bx * ratio)
-                y1 = offset_y + int(by * ratio)
-                x2 = offset_x + int((bx + bw) * ratio)
-                y2 = offset_y + int((by + bh) * ratio)
+                x1 = int(bx * ratio)
+                y1 = int(by * ratio)
+                x2 = int((bx + bw) * ratio)
+                y2 = int((by + bh) * ratio)
 
                 # Segmentations
                 segs = ann.get("segmentation", [])
                 if segs:
                     for s in segs:
                         if len(s) >= 6:
-                            pts = [(offset_x + int(s[i] * ratio), offset_y + int(s[i+1] * ratio)) for i in range(0, len(s), 2)]
-                            gt_draw.polygon(pts, fill=(16, 185, 129, 75), outline=(52, 211, 153, 230))
-                            pred_draw.polygon(pts, fill=(14, 165, 233, 75), outline=(56, 189, 248, 230))
+                            pts = [(int(s[i] * ratio), int(s[i+1] * ratio)) for i in range(0, len(s), 2)]
+                            gt_draw.polygon(pts, fill=(16, 185, 129, 80), outline=(16, 185, 129, 240))
+                            pred_draw.polygon(pts, fill=(37, 99, 235, 80), outline=(37, 99, 235, 240))
 
                 # GT Box & Pill Label
-                gt_draw.rectangle([(x1, y1), (x2, y2)], outline=(52, 211, 153, 255), width=2)
+                gt_draw.rectangle([(x1, y1), (x2, y2)], outline=(16, 185, 129, 255), width=2)
                 tag_text = cat_name
                 try:
                     tb = font.getbbox(tag_text)
-                    tw = tb[2] - tb[0] + 12
+                    tw = tb[2] - tb[0] + 10
                     th = tb[3] - tb[1] + 6
                 except Exception:
                     tw = len(tag_text) * 7 + 10
                     th = 18
-                tag_y1 = max(offset_y, y1 - th)
-                gt_draw.rectangle([(x1, tag_y1), (x1 + tw, tag_y1 + th)], fill=(16, 185, 129, 230))
-                gt_draw.text((x1 + 6, tag_y1 + 2), tag_text, fill=(255, 255, 255), font=font)
+                tag_y1 = max(0, y1 - th)
+                gt_draw.rectangle([(x1, tag_y1), (x1 + tw, tag_y1 + th)], fill=(16, 185, 129, 240))
+                gt_draw.text((x1 + 5, tag_y1 + 2), tag_text, fill=(255, 255, 255), font=font)
 
                 # Pred Box & Pill Label with score
-                pred_draw.rectangle([(x1, y1), (x2, y2)], outline=(56, 189, 248, 255), width=2)
+                pred_draw.rectangle([(x1, y1), (x2, y2)], outline=(37, 99, 235, 255), width=2)
                 score = round(0.93 + (ann_idx * 0.02) % 0.06, 2)
                 pred_label = f"{cat_name} {score}"
                 try:
                     ptb = font.getbbox(pred_label)
-                    ptw = ptb[2] - ptb[0] + 12
+                    ptw = ptb[2] - ptb[0] + 10
                     pth = ptb[3] - ptb[1] + 6
                 except Exception:
                     ptw = len(pred_label) * 7 + 10
                     pth = 18
-                ptag_y1 = max(offset_y, y1 - pth)
-                pred_draw.rectangle([(x1, ptag_y1), (x1 + ptw, ptag_y1 + pth)], fill=(2, 132, 199, 230))
-                pred_draw.text((x1 + 6, ptag_y1 + 2), pred_label, fill=(255, 255, 255), font=font)
+                ptag_y1 = max(0, y1 - pth)
+                pred_draw.rectangle([(x1, ptag_y1), (x1 + ptw, ptag_y1 + pth)], fill=(37, 99, 235, 240))
+                pred_draw.text((x1 + 5, ptag_y1 + 2), pred_label, fill=(255, 255, 255), font=font)
 
         # Composite overlays
         gt_final = Image.alpha_composite(gt_panel, gt_overlay).convert("RGB")

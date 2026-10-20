@@ -99,6 +99,15 @@ export interface TrainingJob {
   mAP50_95?: number;
   mIoU?: number;
   diceScore?: number;
+  confusionMatrix?: {
+    classes: string[];
+    matrix: number[][];
+    total_samples?: number;
+    accuracy?: number;
+    precision?: Record<string, number>;
+    recall?: Record<string, number>;
+    f1_score?: Record<string, number>;
+  };
   validationSamples?: Array<{
     inputImage: string;
     groundTruthMask: string;
@@ -170,16 +179,24 @@ export interface HardwareItem {
   expectedReturnDate?: string;
   purpose?: string;
   notes?: string;
+  link?: string;
   healthStatus: 'optimal' | 'good' | 'warning' | 'needs_service';
   borrowHistory?: HardwareBorrowRecord[];
 }
+
+export type GuidanceCategory =
+  | 'Guidance'
+  | 'Hardware Setup'
+  | 'Software Setup'
+  | 'SOP'
+  | string;
 
 export interface BlogPost {
   id: string;
   title: string;
   excerpt: string;
   content: string; // Markdown or rich text
-  category: 'Guidance' | 'Tutorial' | 'Model Setup' | 'Hardware SOP' | 'Release Notes' | 'Dataset Spec';
+  category: GuidanceCategory;
   tags: string[];
   author: {
     id: string;
@@ -193,7 +210,7 @@ export interface BlogPost {
   attachment?: {
     name: string;
     url: string;
-    fileType: 'pdf' | 'docx' | 'pptx' | 'zip' | 'other';
+    fileType: 'pdf' | 'docx' | 'pptx' | 'zip' | 'md' | 'py' | 'other' | string;
     sizeMB: number;
   };
   coverImage?: string;

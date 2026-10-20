@@ -35,6 +35,9 @@ export async function POST(request: Request) {
       if (body.location) {
         existing.location = body.location;
       }
+      if (body.link) {
+        existing.link = body.link.trim();
+      }
       if (body.assetTag && !existing.assetTag.includes(body.assetTag)) {
         existing.assetTag = `${existing.assetTag}, ${body.assetTag}`;
       }
@@ -61,6 +64,7 @@ export async function POST(request: Request) {
       expectedReturnDate: body.expectedReturnDate || undefined,
       purpose: body.purpose || undefined,
       notes: body.notes || undefined,
+      link: body.link ? body.link.trim() : undefined,
       healthStatus: body.healthStatus || 'optimal',
       borrowHistory: body.borrowHistory || []
     };

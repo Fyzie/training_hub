@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { BlogPost } from '@/lib/types';
+import { BlogPost, GuidanceCategory } from '@/lib/types';
 import { useAuth } from './AuthContext';
 import {
   BookOpen,
@@ -24,7 +24,10 @@ import {
   Share2,
   Edit3,
   Trash2,
-  ArrowLeft
+  ArrowLeft,
+  AlertCircle,
+  FileCode,
+  Paperclip
 } from 'lucide-react';
 
 function getInitials(name?: string) {
@@ -185,19 +188,21 @@ export function BlogView() {
 
   // Form State for Custom Writing
   const [postTitle, setPostTitle] = useState('');
-  const [postCategory, setPostCategory] = useState<'Guidance' | 'Tutorial' | 'Model Setup' | 'Hardware SOP' | 'Release Notes' | 'Dataset Spec'>('Guidance');
+  const [postCategory, setPostCategory] = useState<GuidanceCategory>('Guidance');
   const [postTags, setPostTags] = useState('VisionAI, PyTorch, SOP');
   const [postContent, setPostContent] = useState('');
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Form State for File Upload (Word, PDF, Slides)
+  // Form State for File Upload (Python scripts, Word, PDF, Slides, Any Resource)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [fileTitle, setFileTitle] = useState('');
-  const [fileCategory, setFileCategory] = useState<'Guidance' | 'Tutorial' | 'Model Setup' | 'Hardware SOP' | 'Release Notes' | 'Dataset Spec'>('Guidance');
+  const [fileCategory, setFileCategory] = useState<GuidanceCategory>('Guidance');
   const [fileTags, setFileTags] = useState('Guidelines, Document');
   const [fileDescription, setFileDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDraggingDoc, setIsDraggingDoc] = useState(false);
+  const [docUploadError, setDocUploadError] = useState<string | null>(null);
 
   const loadBlogs = async () => {
     try {
@@ -284,12 +289,31 @@ export function BlogView() {
     }
   };
 
-  // Submit Uploaded File (Word, PDF, Slides)
+  // Handle Drag & Drop of Documents (Word, PDF, Slides, MD)
+  const handleDocDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingDoc(false);
+    setDocUploadError(null);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const f = e.dataTransfer.files[0];
+      setUploadedFile(f);
+      if (!fileTitle) {
+        setFileTitle(f.name.replace(/\.[^/.]+$/, ''));
+      }
+    }
+  };
+
+  // Submit Uploaded File (Word, PDF, Slides, Markdown)
   const handleFileUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadedFile) return;
+    if (!uploadedFile) {
+      setDocUploadError('Please select or drop a file (.py, .docx, .pdf, .pptx, .md, or other) to publish.');
+      return;
+    }
 
     setIsSubmitting(true);
+    setDocUploadError(null);
     try {
       const formData = new FormData();
       formData.append('file', uploadedFile);
@@ -299,28 +323,52 @@ export function BlogView() {
         method: 'POST',
         body: formData
       });
+
+      if (!uploadRes.ok) {
+        const errJson = await uploadRes.json().catch(() => ({}));
+        throw new Error(errJson.error || `Upload failed with HTTP ${uploadRes.status}`);
+      }
+
       const uploadData = await uploadRes.json();
+      if (!uploadData.success) {
+        throw new Error(uploadData.error || 'Document upload failed');
+      }
 
-      if (!uploadData.success) throw new Error('Upload failed');
+      // Keep attachments cleanly formatted as downloadable guidance resources
+      let docContent = `### Document Overview\n${fileDescription || 'Uploaded team guidance document and resource file.'}\n\n**File Attached:** [${uploadedFile.name}](${uploadData.url}) (${uploadData.sizeMB} MB)\n\nClick the download button to retrieve the attached resource file.`;
 
-      // Create blog entry with attachment
+      // Only parse as full article if explicitly a markdown file (.md) and no custom description was provided
+      const isMd = /\.(md|markdown)$/i.test(uploadedFile.name);
+      if (isMd && !fileDescription.trim()) {
+        try {
+          const rawText = await uploadedFile.text();
+          if (rawText && rawText.trim()) {
+            docContent = rawText;
+          }
+        } catch (textErr) {
+          console.warn('Could not read markdown text directly:', textErr);
+        }
+      }
+
+      const titleClean = fileTitle.trim() || uploadedFile.name.replace(/\.[^/.]+$/, '');
+      const isPy = uploadedFile.name.toLowerCase().endsWith('.py');
       const blogPayload = {
-        title: fileTitle || uploadedFile.name.replace(/\.[^/.]+$/, ''),
-        excerpt: fileDescription || `Uploaded guidance document: ${uploadedFile.name}`,
-        content: `### Document Overview\n${fileDescription || 'Uploaded team guidance document.'}\n\n**File Attached:** [${uploadedFile.name}](${uploadData.url}) (${uploadData.sizeMB} MB)`,
-        category: fileCategory,
-        tags: fileTags.split(',').map((t) => t.trim()).filter(Boolean),
+        title: titleClean,
+        excerpt: fileDescription.trim() || (isMd ? docContent.slice(0, 150).replace(/[#*`]/g, '') + '...' : `Attachment resource: ${uploadedFile.name}`),
+        content: docContent,
+        category: fileCategory || 'Guidance',
+        tags: fileTags ? fileTags.split(',').map((t) => t.trim()).filter(Boolean) : [fileCategory || 'Guidance'],
         author: {
           id: user?.id || 'usr-1',
           name: user?.name || 'Staff Specialist',
           avatar: user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-          role: user?.role || 'Engineer'
+          role: user?.role || 'Staff Engineer'
         },
         attachment: {
           name: uploadedFile.name,
           url: uploadData.url,
-          fileType: uploadData.fileType,
-          sizeMB: uploadData.sizeMB
+          fileType: uploadData.fileType || (isPy ? 'py' : isMd ? 'md' : 'other'),
+          sizeMB: uploadData.sizeMB || Math.round((uploadedFile.size / (1024 * 1024)) * 100) / 100
         }
       };
 
@@ -330,15 +378,26 @@ export function BlogView() {
         body: JSON.stringify(blogPayload)
       });
 
-      if (blogRes.ok) {
-        await loadBlogs();
-        setShowCreateModal(false);
-        setUploadedFile(null);
-        setFileTitle('');
-        setFileDescription('');
+      if (!blogRes.ok) {
+        const bErr = await blogRes.json().catch(() => ({}));
+        throw new Error(bErr.error || `Publishing document failed with HTTP ${blogRes.status}`);
       }
-    } catch (err) {
+
+      const createdBlog = await blogRes.json();
+      await loadBlogs();
+      setShowCreateModal(false);
+      setUploadedFile(null);
+      setFileTitle('');
+      setFileDescription('');
+      setFileTags('Guidelines, Document');
+      setDocUploadError(null);
+
+      if (createdBlog && createdBlog.id) {
+        setReadingPost(createdBlog);
+      }
+    } catch (err: any) {
       console.error('Error creating document post:', err);
+      setDocUploadError(err.message || 'Failed to publish document. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -348,7 +407,12 @@ export function BlogView() {
     if (e) e.stopPropagation();
     setEditingBlogId(post.id);
     setPostTitle(post.title);
-    setPostCategory(post.category);
+    let cat = post.category;
+    if (cat === 'Guidance' || cat === 'Guidance Document' || cat === 'Tutorial' || cat === 'Guidance Doc') cat = 'Guidance';
+    else if (cat === 'Hardware SOP') cat = 'Hardware Setup';
+    else if (cat === 'Model Setup') cat = 'Software Setup';
+    else if (!['Guidance', 'Hardware Setup', 'Software Setup', 'SOP'].includes(cat)) cat = 'Guidance';
+    setPostCategory(cat);
     setPostTags(post.tags.join(', '));
     setPostContent(post.content);
     setCreationMode('write');
@@ -439,7 +503,26 @@ export function BlogView() {
 
   // Filtering
   const filteredBlogs = blogs.filter((b) => {
-    const matchCat = selectedCategory === 'all' || b.category === selectedCategory;
+    const matchCat =
+      selectedCategory === 'all' ||
+      (() => {
+        if (b.category === selectedCategory) return true;
+        // Backward-compatible category matching
+        if (selectedCategory === 'Guidance' || selectedCategory === 'Guidance Doc') {
+          return ['Guidance', 'Guidance Document', 'Tutorial', 'Guidance Doc'].includes(b.category);
+        }
+        if (selectedCategory === 'Hardware Setup') {
+          return ['Hardware SOP', 'Hardware Setup'].includes(b.category);
+        }
+        if (selectedCategory === 'Software Setup') {
+          return ['Model Setup', 'Software Setup'].includes(b.category);
+        }
+        if (selectedCategory === 'SOP') {
+          return ['SOP', 'Hardware SOP', 'Dataset Spec'].includes(b.category);
+        }
+        return false;
+      })();
+
     const matchSearch =
       searchQuery === '' ||
       b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -582,6 +665,115 @@ export function BlogView() {
             </div>
           </div>
 
+          {/* Embedded Office / PDF Attachment Banner */}
+          {readingPost.attachment && ['docx', 'pptx'].includes(readingPost.attachment.fileType) && (
+            <div className="mt-6 p-4 rounded-2xl bg-amber-50/70 border border-amber-200/90 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <span className="font-extrabold text-xs text-slate-900 block">
+                    {readingPost.attachment.name}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Office Document • {readingPost.attachment.sizeMB} MB
+                  </span>
+                </div>
+              </div>
+              <a
+                href={readingPost.attachment.url}
+                download
+                className="px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Document</span>
+              </a>
+            </div>
+          )}
+
+          {/* Embedded PDF Viewer if attachment is PDF */}
+          {readingPost.attachment && (readingPost.attachment.fileType === 'pdf' || readingPost.attachment.name.toLowerCase().endsWith('.pdf')) && (
+            <div className="mt-6 border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+              <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-rose-500" />
+                  PDF Document: {readingPost.attachment.name}
+                </span>
+                <a
+                  href={readingPost.attachment.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-700 text-xs font-semibold flex items-center gap-1 underline"
+                >
+                  Open in New Tab ↗
+                </a>
+              </div>
+              <iframe
+                src={readingPost.attachment.url}
+                className="w-full h-[650px] bg-slate-100 border-none"
+                title={readingPost.attachment.name}
+              />
+            </div>
+          )}
+
+          {/* Embedded Python Script Attachment Banner */}
+          {readingPost.attachment && readingPost.attachment.name.toLowerCase().endsWith('.py') && (
+            <div className="mt-6 p-4 rounded-2xl bg-slate-900 text-white border border-slate-800 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/30 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                  <FileCode className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <span className="font-extrabold text-xs text-white block">
+                    {readingPost.attachment.name}
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Python Script Attachment • {readingPost.attachment.sizeMB} MB
+                  </span>
+                </div>
+              </div>
+              <a
+                href={readingPost.attachment.url}
+                download
+                className="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download .py Script</span>
+              </a>
+            </div>
+          )}
+
+          {/* Generic File Attachment Banner for other formats (.zip, .yaml, .json, .onnx, etc.) */}
+          {readingPost.attachment &&
+            !['docx', 'pptx', 'pdf'].includes(readingPost.attachment.fileType) &&
+            !readingPost.attachment.name.toLowerCase().endsWith('.pdf') &&
+            !readingPost.attachment.name.toLowerCase().endsWith('.py') && (
+              <div className="mt-6 p-4 rounded-2xl bg-slate-50 border border-slate-200/90 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-slate-200/80 text-slate-700 flex items-center justify-center shrink-0">
+                    <Paperclip className="w-5 h-5 text-slate-600" />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-xs text-slate-900 block">
+                      {readingPost.attachment.name}
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      File Attachment Resource • {readingPost.attachment.sizeMB} MB
+                    </span>
+                  </div>
+                </div>
+                <a
+                  href={readingPost.attachment.url}
+                  download
+                  className="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Attachment</span>
+                </a>
+              </div>
+            )}
+
           {/* Document Content with Markdown Image & Text Parsing */}
           <div className="py-8 max-w-none text-xs sm:text-sm leading-relaxed text-slate-800">
             {renderMarkdownContent(readingPost.content)}
@@ -630,11 +822,11 @@ export function BlogView() {
 
             {/* Category Pills */}
             <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto">
-              {['all', 'Tutorial', 'Guidance', 'Hardware SOP', 'Model Setup'].map((cat) => (
+              {['all', 'Guidance', 'Hardware Setup', 'Software Setup', 'SOP'].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                     selectedCategory === cat
                       ? 'bg-slate-900 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -707,27 +899,64 @@ export function BlogView() {
                       })()}
 
                       {/* Attachment Pill if available */}
-                      {post.attachment && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-4 p-2.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 flex items-center justify-between gap-2"
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <FileText className="w-4 h-4 text-amber-600 shrink-0" />
-                            <span className="text-xs font-bold text-amber-950 truncate">
-                              {post.attachment.name}
-                            </span>
-                          </div>
-                          <a
-                            href={post.attachment.url}
-                            download
-                            className="px-2.5 py-1 rounded-full bg-amber-200/80 text-amber-900 hover:bg-amber-300 text-[10px] font-bold shrink-0 flex items-center gap-1 transition-colors"
+                      {post.attachment && (() => {
+                        const ext = post.attachment.name.split('.').pop()?.toLowerCase() || '';
+                        const isPy = ext === 'py';
+                        const isPdf = ext === 'pdf';
+                        const isWord = ext === 'doc' || ext === 'docx';
+                        const isSlides = ext === 'ppt' || ext === 'pptx';
+                        const isMd = ext === 'md' || ext === 'txt';
+
+                        const pillColor = isPy
+                          ? 'bg-blue-50/90 border-blue-200 text-blue-950'
+                          : isPdf
+                          ? 'bg-rose-50/80 border-rose-200 text-rose-950'
+                          : isWord
+                          ? 'bg-blue-50/80 border-blue-200 text-blue-950'
+                          : isSlides
+                          ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                          : isMd
+                          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                          : 'bg-slate-50/90 border-slate-200 text-slate-800';
+
+                        const btnColor = isPy
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : isPdf
+                          ? 'bg-rose-100 text-rose-900 hover:bg-rose-200'
+                          : isWord
+                          ? 'bg-blue-100 text-blue-900 hover:bg-blue-200'
+                          : isSlides
+                          ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                          : isMd
+                          ? 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200'
+                          : 'bg-slate-200 text-slate-900 hover:bg-slate-300';
+
+                        return (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className={`mt-4 p-2.5 rounded-2xl border flex items-center justify-between gap-2 ${pillColor}`}
                           >
-                            <Download className="w-3 h-3" />
-                            <span>{post.attachment.sizeMB} MB</span>
-                          </a>
-                        </div>
-                      )}
+                            <div className="flex items-center gap-2 truncate">
+                              {isPy ? (
+                                <FileCode className="w-4 h-4 text-blue-600 shrink-0" />
+                              ) : (
+                                <FileText className="w-4 h-4 shrink-0 opacity-80" />
+                              )}
+                              <span className="text-xs font-bold truncate">
+                                {post.attachment.name}
+                              </span>
+                            </div>
+                            <a
+                              href={post.attachment.url}
+                              download
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 flex items-center gap-1 transition-colors ${btnColor}`}
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>{post.attachment.sizeMB} MB</span>
+                            </a>
+                          </div>
+                        );
+                      })()}
 
                       {/* Tags */}
                       {post.tags && post.tags.length > 0 && (
@@ -855,40 +1084,109 @@ export function BlogView() {
               </button>
             </div>
 
-            {/* MODE 1: FILE UPLOAD (Word, PDF, Slides) */}
+            {/* MODE 1: FILE UPLOAD (Word, PDF, Slides, Markdown, Python, Attachments) */}
             {creationMode === 'upload' && (
               <form onSubmit={handleFileUploadSubmit} className="space-y-4">
+                {/* Error Banner */}
+                {docUploadError && (
+                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-semibold flex items-center gap-2.5 animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="flex-1">{docUploadError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDocUploadError(null)}
+                      className="p-1 hover:bg-rose-100 rounded-lg text-rose-500"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
                 {/* File Dropzone */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Select Document (.pdf, .docx, .pptx, .md)
-                  </label>
-                  <label className="border-2 border-dashed border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/20 transition-all text-center">
-                    <UploadCloud className="w-10 h-10 text-blue-500 mb-2" />
-                    <span className="text-sm font-bold text-slate-700">
-                      {uploadedFile ? uploadedFile.name : 'Click to browse or drop file here'}
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      Select Document or Attachment (.py, .pdf, .docx, .pptx, .md, etc.) *
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      Drag & drop file directly below
                     </span>
-                    <span className="text-xs text-slate-400 mt-1">
-                      {uploadedFile
-                        ? `${(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB`
-                        : 'Supports Word documents, PDF manuals, PowerPoint slides'}
-                    </span>
+                  </div>
+
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDoc(true);
+                    }}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDoc(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingDoc(false);
+                    }}
+                    onDrop={handleDocDrop}
+                    onClick={() => {
+                      document.getElementById('guidance-doc-file-input')?.click();
+                    }}
+                    className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center cursor-pointer transition-all text-center relative ${
+                      isDraggingDoc
+                        ? 'border-blue-500 bg-blue-50/70 ring-4 ring-blue-500/20 scale-[0.99]'
+                        : uploadedFile
+                        ? 'border-blue-300 bg-blue-50/20 hover:bg-blue-50/30'
+                        : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50/70'
+                    }`}
+                  >
                     <input
+                      id="guidance-doc-file-input"
                       type="file"
-                      required
-                      accept=".pdf,.docx,.doc,.pptx,.ppt,.md,.txt"
+                      accept="*"
                       className="hidden"
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
                           const f = e.target.files[0];
                           setUploadedFile(f);
+                          setDocUploadError(null);
                           if (!fileTitle) {
                             setFileTitle(f.name.replace(/\.[^/.]+$/, ''));
                           }
                         }
                       }}
                     />
-                  </label>
+
+                    {uploadedFile ? (
+                      <div className="flex flex-col items-center justify-center space-y-2 pointer-events-none">
+                        <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center shadow-xs">
+                          <FileCheck className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div>
+                          <span className="text-sm font-bold text-slate-900 block max-w-sm truncate">
+                            {uploadedFile.name}
+                          </span>
+                          <span className="text-xs text-slate-500 font-medium">
+                            {(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB • Ready to publish
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-blue-600 underline">
+                          Click or drop another file to replace
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center space-y-1.5 pointer-events-none">
+                        <UploadCloud className={`w-10 h-10 ${isDraggingDoc ? 'text-blue-600 animate-bounce' : 'text-blue-500'} mb-1`} />
+                        <span className="text-sm font-bold text-slate-800">
+                          {isDraggingDoc ? 'Release to upload document' : 'Click to browse or drop file here'}
+                        </span>
+                        <span className="text-xs text-slate-400 max-w-sm">
+                          Supports Python (.py), Word (.docx), PDF (.pdf), Slides (.pptx), Markdown (.md), or any other attachment
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -911,11 +1209,10 @@ export function BlogView() {
                       onChange={(e) => setFileCategory(e.target.value as any)}
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white font-semibold"
                     >
-                      <option value="Guidance">Guidance Document</option>
-                      <option value="Tutorial">Tutorial / Guide</option>
-                      <option value="Hardware SOP">Hardware SOP</option>
-                      <option value="Model Setup">Model Setup</option>
-                      <option value="Release Notes">Release Notes</option>
+                      <option value="Guidance">Guidance</option>
+                      <option value="Hardware Setup">Hardware Setup</option>
+                      <option value="Software Setup">Software Setup</option>
+                      <option value="SOP">SOP</option>
                     </select>
                   </div>
 
@@ -953,9 +1250,10 @@ export function BlogView() {
                   <button
                     type="submit"
                     disabled={isSubmitting || !uploadedFile}
-                    className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20"
+                    className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
                   >
-                    {isSubmitting ? 'Uploading...' : 'Publish Document'}
+                    {isSubmitting && <UploadCloud className="w-3.5 h-3.5 animate-bounce" />}
+                    <span>{isSubmitting ? 'Publishing Document...' : 'Publish Document'}</span>
                   </button>
                 </div>
               </form>
@@ -984,11 +1282,10 @@ export function BlogView() {
                       onChange={(e) => setPostCategory(e.target.value as any)}
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white font-semibold"
                     >
-                      <option value="Tutorial">Tutorial</option>
-                      <option value="Guidance">Guidance Document</option>
-                      <option value="Model Setup">Model Setup</option>
-                      <option value="Hardware SOP">Hardware SOP</option>
-                      <option value="Dataset Spec">Dataset Spec</option>
+                      <option value="Guidance">Guidance</option>
+                      <option value="Hardware Setup">Hardware Setup</option>
+                      <option value="Software Setup">Software Setup</option>
+                      <option value="SOP">SOP</option>
                     </select>
                   </div>
 

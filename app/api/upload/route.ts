@@ -30,14 +30,28 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     fs.writeFileSync(destPath, buffer);
 
+    // Mirror to public folder for direct Next.js static asset fallback
+    try {
+      const publicSubDir = path.join(process.cwd(), 'public', 'uploads', subFolder);
+      if (!fs.existsSync(publicSubDir)) {
+        fs.mkdirSync(publicSubDir, { recursive: true });
+      }
+      fs.copyFileSync(destPath, path.join(publicSubDir, safeName));
+    } catch (mirrorErr) {
+      console.warn('Could not mirror upload to public directory:', mirrorErr);
+    }
+
     const url = `/uploads/${subFolder}/${safeName}`;
     const sizeMB = Math.round((file.size / (1024 * 1024)) * 100) / 100;
 
-    let fileType: 'pdf' | 'docx' | 'pptx' | 'zip' | 'other' = 'other';
-    if (ext === '.pdf') fileType = 'pdf';
-    else if (ext === '.docx' || ext === '.doc') fileType = 'docx';
-    else if (ext === '.pptx' || ext === '.ppt') fileType = 'pptx';
-    else if (ext === '.zip' || ext === '.tar' || ext === '.gz') fileType = 'zip';
+    let fileType: 'pdf' | 'docx' | 'pptx' | 'zip' | 'md' | 'py' | 'other' = 'other';
+    const lowerExt = ext.toLowerCase();
+    if (lowerExt === '.pdf') fileType = 'pdf';
+    else if (lowerExt === '.docx' || lowerExt === '.doc') fileType = 'docx';
+    else if (lowerExt === '.pptx' || lowerExt === '.ppt') fileType = 'pptx';
+    else if (lowerExt === '.zip' || lowerExt === '.tar' || lowerExt === '.gz') fileType = 'zip';
+    else if (lowerExt === '.md' || lowerExt === '.markdown' || lowerExt === '.txt') fileType = 'md';
+    else if (lowerExt === '.py') fileType = 'py';
 
     return NextResponse.json({
       success: true,
