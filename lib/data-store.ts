@@ -226,7 +226,20 @@ export const dataStore = {
   },
 
   // Blogs
-  getBlogs: (): BlogPost[] => readJsonFile<BlogPost[]>('blogs.json', []),
+  getBlogs: (): BlogPost[] => {
+    const list = readJsonFile<BlogPost[]>('blogs.json', []);
+    let modified = false;
+    list.forEach((b) => {
+      if (b.author?.avatar && b.author.avatar.includes('images.unsplash.com')) {
+        b.author.avatar = '';
+        modified = true;
+      }
+    });
+    if (modified) {
+      writeJsonFile('blogs.json', list);
+    }
+    return list;
+  },
   saveBlogs: (blogs: BlogPost[]) => writeJsonFile('blogs.json', blogs),
   addBlog: (blog: BlogPost) => {
     const blogs = dataStore.getBlogs();

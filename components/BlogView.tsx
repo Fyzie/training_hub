@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { BlogPost, BlogAttachment, GuidanceCategory } from '@/lib/types';
+import { BlogPost, BlogAttachment, GuidanceCategory, StaffUser } from '@/lib/types';
 import { useAuth } from './AuthContext';
 import {
   BookOpen,
@@ -36,6 +36,23 @@ function getInitials(name?: string) {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getAuthorAvatar(author: BlogPost['author'], currentUser?: StaffUser | null, usersList: StaffUser[] = []): string {
+  // If matched with current logged-in user
+  if (currentUser && (author.id === currentUser.id || author.name?.trim().toLowerCase() === currentUser.name?.trim().toLowerCase())) {
+    return currentUser.avatar || '';
+  }
+  // If matched with any registered staff member
+  const matched = usersList.find((u) => u.id === author.id || u.name?.trim().toLowerCase() === author.name?.trim().toLowerCase());
+  if (matched) {
+    return matched.avatar || '';
+  }
+  // Strip any legacy dummy unsplash avatar
+  if (author.avatar && author.avatar.includes('images.unsplash.com')) {
+    return '';
+  }
+  return author.avatar || '';
 }
 
 function parseInlineMarkdown(text: string): React.ReactNode {
@@ -173,7 +190,7 @@ function renderMarkdownContent(content: string) {
 }
 
 export function BlogView() {
-  const { user } = useAuth();
+  const { user, allUsers } = useAuth();
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -398,7 +415,7 @@ export function BlogView() {
         author: {
           id: user?.id || 'usr-1',
           name: user?.name || 'Staff Specialist',
-          avatar: user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          avatar: user?.avatar || '',
           role: user?.role || 'Staff Engineer'
         },
         attachment: primaryAttachment,
@@ -808,17 +825,20 @@ export function BlogView() {
           {/* Author Bar, Views, Likes */}
           <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 text-xs">
             <div className="flex items-center gap-3">
-              {readingPost.author.avatar ? (
-                <img
-                  src={readingPost.author.avatar}
-                  alt={readingPost.author.name}
-                  className="w-10 h-10 rounded-full object-cover shrink-0 ring-2 ring-slate-100"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center uppercase shrink-0">
-                  {getInitials(readingPost.author.name)}
-                </div>
-              )}
+              {(() => {
+                const avatarUrl = getAuthorAvatar(readingPost.author, user, allUsers);
+                return avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={readingPost.author.name}
+                    className="w-10 h-10 rounded-full object-cover shrink-0 ring-2 ring-slate-100"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center uppercase shrink-0">
+                    {getInitials(readingPost.author.name)}
+                  </div>
+                );
+              })()}
               <div>
                 <p className="font-bold text-slate-900 text-sm">{readingPost.author.name}</p>
                 <p className="text-xs text-slate-400">{readingPost.author.role}</p>
@@ -1169,17 +1189,20 @@ export function BlogView() {
                     {/* Author & Footer Actions */}
                     <div className="mt-6 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        {post.author.avatar ? (
-                          <img
-                            src={post.author.avatar}
-                            alt={post.author.name}
-                            className="w-6 h-6 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-extrabold text-[10px] flex items-center justify-center uppercase">
-                            {getInitials(post.author.name)}
-                          </div>
-                        )}
+                        {(() => {
+                          const avatarUrl = getAuthorAvatar(post.author, user, allUsers);
+                          return avatarUrl ? (
+                            <img
+                              src={avatarUrl}
+                              alt={post.author.name}
+                              className="w-6 h-6 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-extrabold text-[10px] flex items-center justify-center uppercase">
+                              {getInitials(post.author.name)}
+                            </div>
+                          );
+                        })()}
                         <div>
                           <p className="font-bold text-slate-800 text-[11px] leading-tight">{post.author.name}</p>
                           <p className="text-[10px] text-slate-400">{post.author.role}</p>

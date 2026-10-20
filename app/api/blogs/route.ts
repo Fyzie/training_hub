@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       author: body.author || {
         id: 'usr-1',
         name: 'Staff Engineer',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        avatar: '',
         role: 'AI Specialist'
       },
       createdAt: new Date().toISOString(),
