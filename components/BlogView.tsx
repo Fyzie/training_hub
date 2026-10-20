@@ -805,7 +805,7 @@ export function BlogView() {
             </h1>
           </div>
 
-          {/* Author Bar, Views, Likes & Attachment Download */}
+          {/* Author Bar, Views, Likes */}
           <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 text-xs">
             <div className="flex items-center gap-3">
               {readingPost.author.avatar ? (
@@ -825,32 +825,24 @@ export function BlogView() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-3 text-slate-400 mr-1">
-                <span className="flex items-center gap-1 text-xs">
-                  <Eye className="w-4 h-4" />
-                  {readingPost.views} views
-                </span>
-                <button
-                  onClick={(e) => handleLike(readingPost.id, e)}
-                  className="flex items-center gap-1 text-xs text-slate-600 hover:text-rose-500 transition-colors cursor-pointer"
-                >
-                  <Heart className="w-4 h-4 fill-rose-50 text-rose-500 hover:fill-rose-500" />
-                  <span>{readingPost.likes}</span>
-                </button>
-              </div>
-
-              {readingPost.attachment && (
-                <a
-                  href={readingPost.attachment.url}
-                  download
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md shadow-amber-500/20 transition-all w-full sm:w-auto"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download {readingPost.attachment.name}</span>
-                </a>
-              )}
+            <div className="flex items-center gap-3 text-slate-400">
+              <span className="flex items-center gap-1 text-xs">
+                <Eye className="w-4 h-4" />
+                {readingPost.views} views
+              </span>
+              <button
+                onClick={(e) => handleLike(readingPost.id, e)}
+                className="flex items-center gap-1 text-xs text-slate-600 hover:text-rose-500 transition-colors cursor-pointer"
+              >
+                <Heart className="w-4 h-4 fill-rose-50 text-rose-500 hover:fill-rose-500" />
+                <span>{readingPost.likes}</span>
+              </button>
             </div>
+          </div>
+
+          {/* Document Content with Markdown Image & Text Parsing */}
+          <div className="py-8 max-w-none text-xs sm:text-sm leading-relaxed text-slate-800">
+            {renderMarkdownContent(readingPost.content)}
           </div>
 
           {/* Embedded PDF Viewer if any attachment is a PDF */}
@@ -863,7 +855,7 @@ export function BlogView() {
             if (!pdfAttachment) return null;
 
             return (
-              <div className="mt-6 border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+              <div className="mb-6 border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
                 <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <FileText className="w-4 h-4 text-rose-500" />
@@ -887,7 +879,7 @@ export function BlogView() {
             );
           })()}
 
-          {/* Downloadable Attachments & Resources Section (All Files) */}
+          {/* Downloadable Attachments & Resources Section (At the bottom of the blog) */}
           {(() => {
             const allAttachments: BlogAttachment[] = [
               ...(readingPost.attachments || []),
@@ -896,7 +888,7 @@ export function BlogView() {
             if (allAttachments.length === 0) return null;
 
             return (
-              <div className="mt-6 p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md">
+              <div className="mb-8 p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md">
                 <div className="flex items-center justify-between gap-3 mb-3 pb-2.5 border-b border-slate-800">
                   <div className="flex items-center gap-2">
                     <Paperclip className="w-4 h-4 text-blue-400" />
@@ -974,11 +966,6 @@ export function BlogView() {
               </div>
             );
           })()}
-
-          {/* Document Content with Markdown Image & Text Parsing */}
-          <div className="py-8 max-w-none text-xs sm:text-sm leading-relaxed text-slate-800">
-            {renderMarkdownContent(readingPost.content)}
-          </div>
 
           {/* Footer tags & Back to Guidance button */}
           <div className="pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
