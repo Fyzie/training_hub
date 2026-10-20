@@ -115,6 +115,27 @@ echo.
 echo [*] Step 3/3: Building Next.js production bundle...
 call npm run build
 
+:: 4. Ensure env_hub and .env exist for Resend API
+echo.
+echo [*] Checking env_hub configuration...
+if not exist "%~dp0..\env_hub" (
+    echo [*] Creating env_hub directory at "%~dp0..\env_hub"...
+    mkdir "%~dp0..\env_hub"
+)
+if not exist "%~dp0..\env_hub\.env" (
+    echo [*] Initializing .env in env_hub for Resend API keys...
+    (
+        echo # IRnow Hub Environment Configuration
+        echo # Insert your Resend API Key below for email notifications ^(Password Reset, Training Alerts^)
+        echo RESEND_API_KEY=
+        echo RESEND_FROM_EMAIL=no-reply@hub.hafizimalik.com
+        echo APP_URL=https://hub.hafizimalik.com
+    ) > "%~dp0..\env_hub\.env"
+    echo      Created "%~dp0..\env_hub\.env". You can fill RESEND_API_KEY anytime.
+) else (
+    echo      [+] env_hub\.env already exists.
+)
+
 echo.
 echo =====================================================================
 echo [SUCCESS] Office PC Setup is Complete!

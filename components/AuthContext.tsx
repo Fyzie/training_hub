@@ -15,8 +15,9 @@ interface AuthContextType {
   allUsers: StaffUser[];
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<AuthResponse>;
-  register: (name: string, email: string, password: string, role: string, department: string) => Promise<AuthResponse>;
+  register: (name: string, email: string, password: string, role: string, department?: string) => Promise<AuthResponse>;
   updateAvatar: (avatarUrl: string) => Promise<boolean>;
+  updateProfile: (updates: { name?: string; email?: string; role?: string; password?: string; avatar?: string }) => Promise<{ success: boolean; error?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
   updateUserLevel: (id: string, level: 'Admin' | 'Guest') => Promise<{ success: boolean; error?: string }>;
   switchUser: (user: StaffUser) => void;
@@ -31,6 +32,7 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => ({ success: false }),
   register: async () => ({ success: false }),
   updateAvatar: async () => false,
+  updateProfile: async () => ({ success: false }),
   deleteUser: async () => ({ success: false }),
   updateUserLevel: async () => ({ success: false }),
   switchUser: () => {},
@@ -96,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (name: string, email: string, password: string, role: string, department: string): Promise<AuthResponse> => {
+  const register = async (name: string, email: string, password: string, role: string, department?: string): Promise<AuthResponse> => {
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
@@ -107,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: email.trim(),
           password: password.trim(),
           role,
-          department: department.trim() || 'AI Engineering Lab'
+          department: (department || '').trim()
         })
       });
       const data = await res.json();
@@ -148,6 +150,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     } catch {
       return false;
+    }
+  };
+
+  const updateProfile = async (updates: {
+    name?: string;
+    email?: string;
+    role?: string;
+    password?: string;
+    avatar?: string;
+  }): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Not authenticated' };
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: user.id, ...updates })
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.user) {
+        setUser(data.user);
+        await refreshUsers();
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Failed to update profile' };
+    } catch {
+      return { success: false, error: 'Network error updating profile' };
     }
   };
 
@@ -211,6 +239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         updateAvatar,
+        updateProfile,
         deleteUser,
         updateUserLevel,
         switchUser,

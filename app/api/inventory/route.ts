@@ -196,7 +196,16 @@ export async function PATCH(request: Request) {
       item.availableQuantity += addQty;
       if (item.availableQuantity > 0 && item.status === 'in_use') item.status = 'available';
     } else {
+      if (updates.quantity !== undefined) {
+        updates.quantity = Math.max(0, parseInt(String(updates.quantity), 10) || 0);
+      }
+      if (updates.availableQuantity !== undefined) {
+        updates.availableQuantity = Math.max(0, parseInt(String(updates.availableQuantity), 10) || 0);
+      }
       Object.assign(item, updates);
+      if (item.availableQuantity > 0 && item.status === 'in_use') {
+        item.status = 'available';
+      }
     }
 
     dataStore.saveHardware(items);

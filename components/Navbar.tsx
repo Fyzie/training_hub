@@ -23,8 +23,10 @@ import {
   Menu,
   Users,
   Trash2,
-  Shield
+  Shield,
+  Pencil
 } from 'lucide-react';
+import { EditProfileModal } from './EditProfileModal';
 
 interface NavbarProps {
   activeTab: string;
@@ -47,6 +49,7 @@ export function Navbar({
 }: NavbarProps) {
   const { user, allUsers, switchUser, logout, updateAvatar, refreshUsers, deleteUser, updateUserLevel } = useAuth();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUsersModal, setShowUsersModal] = useState(false);
   const [pendingLevels, setPendingLevels] = useState<Record<string, 'Admin' | 'Guest'>>({});
@@ -411,7 +414,7 @@ export function Navbar({
                             </div>
 
                             <div className="mt-2 text-[11px] text-slate-600 flex items-center justify-between">
-                              <span>Dept: <strong className="text-slate-800">{item.department}</strong></span>
+                              <span>Role: <strong className="text-slate-800">{item.role}</strong></span>
                               <span className="text-slate-400">
                                 {new Date(item.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
@@ -565,18 +568,18 @@ export function Navbar({
                     </div>
                   </div>
 
-                  {/* Button to Upload / Change Profile Photo */}
-                  <label className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl bg-slate-50 hover:bg-blue-50 text-blue-700 text-[11px] font-bold border border-slate-200/80 cursor-pointer transition-colors">
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>{isUploadingPhoto ? 'Uploading...' : 'Upload Profile Photo'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      ref={fileInputRef}
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                  </label>
+                  {/* Edit Profile Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditProfileModal(true);
+                      setShowUserDropdown(false);
+                    }}
+                    className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl bg-slate-50 hover:bg-blue-50 text-blue-700 text-[11px] font-bold border border-slate-200/80 cursor-pointer transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Edit Profile</span>
+                  </button>
                 </div>
 
                 {allUsers.length > 1 && (
@@ -687,7 +690,7 @@ export function Navbar({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-slate-900 truncate leading-tight">{user.name}</p>
-                  <p className="text-[10px] text-slate-500 truncate">{user.role} • {user.department}</p>
+                  <p className="text-[10px] text-slate-500 truncate">{user.role}</p>
                 </div>
               </div>
             </div>
@@ -804,7 +807,7 @@ export function Navbar({
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Manage team accounts, view department roles, and adjust Admin or Guest permissions.
+                    Manage team accounts, view member roles, and adjust Admin or Guest permissions.
                   </p>
                 </div>
               </div>
@@ -846,7 +849,7 @@ export function Navbar({
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500">{u.email} • {u.department || 'Lab'}</p>
+                        <p className="text-xs text-slate-500">{u.email} • {u.role}</p>
                       </div>
                     </div>
 
@@ -917,6 +920,12 @@ export function Navbar({
           </div>
         </div>
       )}
+
+      {/* Edit Profile Modal */}
+      <EditProfileModal
+        isOpen={showEditProfileModal}
+        onClose={() => setShowEditProfileModal(false)}
+      />
     </>
   );
 }

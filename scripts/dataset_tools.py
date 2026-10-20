@@ -19,7 +19,7 @@ import argparse
 from pathlib import Path
 from PIL import Image
 
-def analyze_dataset(dataset_dir: str) -> dict:
+def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
     real_path = os.path.abspath(dataset_dir)
     if not os.path.exists(real_path):
         return {"error": f"Path not found: {dataset_dir}"}
@@ -90,6 +90,42 @@ def analyze_dataset(dataset_dir: str) -> dict:
             if not os.path.islink(fp):
                 total_bytes += os.path.getsize(fp)
     size_mb = round(total_bytes / (1024 * 1024), 2)
+
+    # 0. Tabular Domain Detection
+    if domain and "tabular" in domain.lower():
+        csv_files = []
+        for root, _, files in os.walk(real_path):
+            for f in files:
+                if f.lower().endswith(('.csv', '.tsv', '.parquet', '.xlsx')):
+                    csv_files.append(os.path.join(root, f))
+        if csv_files:
+            main_csv = csv_files[0]
+            try:
+                import csv
+                with open(main_csv, "r", encoding="utf-8", errors="ignore") as f:
+                    reader = csv.reader(f)
+                    header = next(reader, [])
+                    row_count = sum(1 for _ in reader)
+                classes_list = [f"Col: {c.strip()}" for c in header[:10]]
+                return {
+                    "name": os.path.basename(real_path),
+                    "storagePath": real_path,
+                    "fileSizeMB": size_mb,
+                    "format": "Tabular Dataset (CSV / Table)",
+                    "domain": "Tabular",
+                    "totalSamples": row_count or 1,
+                    "totalAnnotations": len(header),
+                    "numClasses": len(header),
+                    "classes": classes_list,
+                    "classDistribution": {c.strip(): row_count for c in header[:8]},
+                    "splits": {"train": int(row_count * 0.8), "val": int(row_count * 0.2), "test": 0},
+                    "imageResolution": {"min": {"width": 0, "height": 0}, "max": {"width": 0, "height": 0}, "avg": {"width": 0, "height": 0}},
+                    "aspectRatio": f"{len(header)} cols x {row_count} rows",
+                    "annotationTypes": ["Tabular Columns / Features"],
+                    "avgAnnotationsPerImage": float(len(header))
+                }
+            except Exception:
+                pass
 
     # Search for COCO json files
     coco_files = []
@@ -340,11 +376,12 @@ if __name__ == "__main__":
     parser.add_argument("--action", type=str, choices=["analyze", "zip", "extract"], default="analyze")
     parser.add_argument("--dataset_dir", type=str, required=True, help="Path to dataset directory")
     parser.add_argument("--target_zip", type=str, default="", help="Target output or source zip file path")
+    parser.add_argument("--domain", type=str, default="", help="Dataset domain hint")
 
     args = parser.parse_args()
 
     if args.action == "analyze":
-        result = analyze_dataset(args.dataset_dir)
+        result = analyze_dataset(args.dataset_dir, domain=args.domain)
         print("__DATASET_JSON_START__")
         print(json.dumps(result, indent=2))
         print("__DATASET_JSON_END__")

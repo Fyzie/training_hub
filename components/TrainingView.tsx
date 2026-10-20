@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { TrainingJob, Dataset } from '@/lib/types';
+import { TrainingJob, Dataset, DatasetDomain } from '@/lib/types';
 import { useAuth } from './AuthContext';
 import {
   Cpu,
@@ -26,6 +26,7 @@ import {
   Search,
   Filter,
   ArrowLeft,
+  ChevronLeft,
   ChevronRight,
   Sliders,
   Scissors,
@@ -137,8 +138,19 @@ dataset = version.download("coco")`
   const [datasetForm, setDatasetForm] = useState({
     name: '',
     category: 'vision' as 'vision' | 'tabular',
+    domain: 'Instance Segmentation / Object Detection' as DatasetDomain,
     description: ''
   });
+
+  // See All Pagination Modals (Max 10 per page)
+  const [showAllJobsModal, setShowAllJobsModal] = useState(false);
+  const [allJobsPage, setAllJobsPage] = useState(1);
+
+  const [showAllDatasetsModal, setShowAllDatasetsModal] = useState(false);
+  const [allDatasetsPage, setAllDatasetsPage] = useState(1);
+
+  const [showAllResultsModal, setShowAllResultsModal] = useState(false);
+  const [allResultsPage, setAllResultsPage] = useState(1);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
@@ -597,8 +609,9 @@ dataset = version.download("coco")`
       id: optimisticId,
       name: datasetName,
       category: datasetForm.category || 'vision',
+      domain: datasetForm.domain,
       description: datasetForm.description.trim() || (datasetUploadMode === 'roboflow' ? 'Importing dataset from Roboflow...' : 'Uploading dataset archive to host storage...'),
-      format: datasetUploadMode === 'roboflow' ? 'coco' : 'yolo',
+      format: datasetUploadMode === 'roboflow' ? 'coco' : (datasetForm.domain === 'Tabular' ? 'csv' : 'yolo'),
       fileSizeMB: uploadFile ? Math.round((uploadFile.size / (1024 * 1024)) * 10) / 10 : 0,
       sampleCount: 0,
       uploadedBy: userName,
@@ -625,6 +638,7 @@ dataset = version.download("coco")`
           body: JSON.stringify({
             roboflowSnippet: roboflowSnippet.trim(),
             name: datasetName,
+            domain: datasetForm.domain,
             description: datasetForm.description.trim(),
             uploadedBy: userName
           })
@@ -639,7 +653,7 @@ dataset = version.download("coco")`
         await loadData();
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);
-        setDatasetForm({ name: '', category: 'vision', description: '' });
+        setDatasetForm({ name: '', category: 'vision', domain: 'Instance Segmentation / Object Detection', description: '' });
       } else {
         if (!uploadFile) {
           setUploadError('Please select a dataset file (.zip or folder archive) to upload.');
@@ -651,6 +665,7 @@ dataset = version.download("coco")`
         const formData = new FormData();
         formData.append('name', datasetName);
         formData.append('category', datasetForm.category);
+        formData.append('domain', datasetForm.domain);
         formData.append('description', datasetForm.description);
         formData.append('uploadedBy', userName);
         formData.append('file', uploadFile);
@@ -707,7 +722,7 @@ dataset = version.download("coco")`
         await loadData();
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);
-        setDatasetForm({ name: '', category: 'vision', description: '' });
+        setDatasetForm({ name: '', category: 'vision', domain: 'Instance Segmentation / Object Detection', description: '' });
         setUploadFile(null);
       }
     } catch (err: any) {
@@ -966,7 +981,7 @@ dataset = version.download("coco")`
                 )}
               </div>
             ) : (
-              displayedJobs.map((job) => {
+              displayedJobs.slice(0, 5).map((job) => {
                 const isSelected = selectedJob?.id === job.id;
                 const isRunning = job.status === 'running';
                 const isCompleted = job.status === 'completed';
@@ -1014,6 +1029,11 @@ dataset = version.download("coco")`
                           <FolderArchive className="w-3.5 h-3.5 text-amber-700 animate-bounce" />
                           Unzipping Dataset...
                         </span>
+                      ) : job.stage === 'generating_results' ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-300 text-[11px] font-black uppercase tracking-wider shadow-xs animate-pulse">
+                          <Loader2 className="w-3.5 h-3.5 text-indigo-700 animate-spin" />
+                          Generating Results...
+                        </span>
                       ) : isRunning ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-black uppercase tracking-wider shadow-xs">
                           <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
@@ -1060,6 +1080,21 @@ dataset = version.download("coco")`
                           <div className="h-full rounded-full bg-amber-500 w-full animate-pulse"></div>
                         </div>
                       </div>
+                    ) : job.stage === 'generating_results' ? (
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                          <span className="text-indigo-800 font-bold flex items-center gap-1.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                            Epoch {job.totalEpochs}/{job.totalEpochs} - Generating training results
+                          </span>
+                          <span className="text-indigo-800 font-black uppercase text-[10px] tracking-wider bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200 animate-pulse">
+                            Finalizing
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-indigo-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-indigo-600 w-full animate-pulse"></div>
+                        </div>
+                      </div>
                     ) : (
                       <div className="mt-4">
                         <div className="flex items-center justify-between text-xs font-semibold mb-1">
@@ -1094,20 +1129,22 @@ dataset = version.download("coco")`
                       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                         {canManageJob(job) ? (
                           <>
-                            {isRunning && (
+                            {job.status === 'queued' && (
                               <button
                                 onClick={() => handleJobAction(job.id, 'pause')}
-                                className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 font-bold flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                                className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 font-bold flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                                title="Pause queued job (will skip to next job in queue)"
                               >
-                                <Pause className="w-3 h-3" /> Pause
+                                <Pause className="w-3 h-3" /> Pause Queue
                               </button>
                             )}
                             {isPaused && (
                               <button
                                 onClick={() => handleJobAction(job.id, 'resume')}
-                                className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                                className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold flex items-center gap-1 text-[11px] transition-colors cursor-pointer"
+                                title="Resume job in queue"
                               >
-                                <Play className="w-3 h-3" /> Resume
+                                <Play className="w-3 h-3" /> Resume Queue
                               </button>
                             )}
                             {(isRunning || isPaused || job.status === 'queued') && (
@@ -1146,6 +1183,26 @@ dataset = version.download("coco")`
                 );
               })
             )}
+
+            {/* See All Jobs Button */}
+            {displayedJobs.length > 0 && (
+              <div className="flex items-center justify-between pt-2 px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Showing {Math.min(5, displayedJobs.length)} of {displayedJobs.length} queued / active jobs
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAllJobsModal(true);
+                    setAllJobsPage(1);
+                  }}
+                  className="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>See All ({displayedJobs.length})</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Right Inspector: Live Loss & Metrics Curve + Console Logs (5 cols) */}
@@ -1166,6 +1223,11 @@ dataset = version.download("coco")`
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase tracking-wider animate-pulse">
                           <FolderArchive className="w-3 h-3 text-amber-700 animate-bounce" />
                           Unzipping Dataset
+                        </span>
+                      ) : selectedJob.stage === 'generating_results' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-300 text-[10px] font-black uppercase tracking-wider animate-pulse">
+                          <Loader2 className="w-3 h-3 text-indigo-700 animate-spin" />
+                          Generating Results
                         </span>
                       ) : selectedJob.status === 'running' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-black uppercase tracking-wider">
@@ -2376,6 +2438,25 @@ dataset = version.download("coco")`
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Dataset Domain *
+                      </label>
+                      <select
+                        value={datasetForm.domain}
+                        onChange={(e) => setDatasetForm({
+                          ...datasetForm,
+                          domain: e.target.value as DatasetDomain,
+                          category: e.target.value === 'Tabular' ? 'tabular' : 'vision'
+                        })}
+                        className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs bg-white font-semibold"
+                      >
+                        <option value="Instance Segmentation / Object Detection">Instance Segmentation / Object Detection</option>
+                        <option value="Image Classification">Image Classification</option>
+                        <option value="Tabular">Tabular</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         Custom Dataset Name (Optional)
                       </label>
                       <input
@@ -2424,14 +2505,19 @@ dataset = version.download("coco")`
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Domain</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Dataset Domain *</label>
                       <select
-                        value={datasetForm.category}
-                        onChange={(e) => setDatasetForm({ ...datasetForm, category: e.target.value as any })}
+                        value={datasetForm.domain}
+                        onChange={(e) => setDatasetForm({
+                          ...datasetForm,
+                          domain: e.target.value as DatasetDomain,
+                          category: e.target.value === 'Tabular' ? 'tabular' : 'vision'
+                        })}
                         className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs bg-white font-semibold"
                       >
-                        <option value="vision">Computer Vision</option>
-                        <option value="tabular">Tabular</option>
+                        <option value="Instance Segmentation / Object Detection">Instance Segmentation / Object Detection</option>
+                        <option value="Image Classification">Image Classification</option>
+                        <option value="Tabular">Tabular</option>
                       </select>
                     </div>
 
@@ -2490,38 +2576,54 @@ dataset = version.download("coco")`
               <div>
                 <p className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
-                  <span>Instance Segmentation & Object Detection</span>
+                  <span>Instance Segmentation / Object Detection (COCO / YOLO)</span>
                 </p>
-                <pre className="bg-white border border-slate-200 p-2.5 rounded-xl font-mono text-[10px] text-slate-700 overflow-x-auto leading-relaxed">
-{`dataset.dir
--train
---annotation.json
---images
--valid
---annotation.json
---images`}
-                </pre>
+                <div className="bg-white border border-slate-200 p-3 rounded-xl font-mono text-[10px] text-slate-700 overflow-x-auto leading-relaxed shadow-xs">
+                  <div className="text-blue-700 font-bold">dataset_root/</div>
+                  <div className="text-slate-600">├── train/</div>
+                  <div className="text-slate-500">│   ├── _annotations.coco.json <span className="text-slate-400 font-sans italic">(or annotation.json)</span></div>
+                  <div className="text-slate-500">│   └── *.jpg / *.png</div>
+                  <div className="text-slate-600">├── valid/</div>
+                  <div className="text-slate-500">│   ├── _annotations.coco.json</div>
+                  <div className="text-slate-500">│   └── *.jpg / *.png</div>
+                  <div className="text-slate-600">└── test/ <span className="text-slate-400 font-sans italic">(optional)</span></div>
+                  <div className="text-slate-500">    ├── _annotations.coco.json</div>
+                  <div className="text-slate-500">    └── *.jpg / *.png</div>
+                </div>
               </div>
 
               {/* Image Classification */}
               <div>
                 <p className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                  <span>Image Classification</span>
+                  <span>Image Classification (Folder Hierarchy)</span>
                 </p>
-                <pre className="bg-white border border-slate-200 p-2.5 rounded-xl font-mono text-[10px] text-slate-700 overflow-x-auto leading-relaxed">
-{`dataset.dir
--train
---class1
----images
---class2
----images
--valid
---class1
----images
---class2
----images`}
-                </pre>
+                <div className="bg-white border border-slate-200 p-3 rounded-xl font-mono text-[10px] text-slate-700 overflow-x-auto leading-relaxed shadow-xs">
+                  <div className="text-emerald-700 font-bold">dataset_root/</div>
+                  <div className="text-slate-600">├── train/</div>
+                  <div className="text-slate-500">│   ├── class_a/ <span className="text-slate-400 font-sans italic">(*.jpg / *.png)</span></div>
+                  <div className="text-slate-500">│   └── class_b/ <span className="text-slate-400 font-sans italic">(*.jpg / *.png)</span></div>
+                  <div className="text-slate-600">├── valid/</div>
+                  <div className="text-slate-500">│   ├── class_a/</div>
+                  <div className="text-slate-500">│   └── class_b/</div>
+                  <div className="text-slate-600">└── test/ <span className="text-slate-400 font-sans italic">(optional)</span></div>
+                  <div className="text-slate-500">    ├── class_a/</div>
+                  <div className="text-slate-500">    └── class_b/</div>
+                </div>
+              </div>
+
+              {/* Tabular */}
+              <div>
+                <p className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                  <span>Tabular Data (CSV / JSON)</span>
+                </p>
+                <div className="bg-white border border-slate-200 p-3 rounded-xl font-mono text-[10px] text-slate-700 overflow-x-auto leading-relaxed shadow-xs">
+                  <div className="text-amber-700 font-bold">dataset_root/</div>
+                  <div className="text-slate-600">├── train.csv <span className="text-slate-400 font-sans italic">(or data.csv with target column)</span></div>
+                  <div className="text-slate-600">├── valid.csv <span className="text-slate-400 font-sans italic">(optional)</span></div>
+                  <div className="text-slate-600">└── metadata.json <span className="text-slate-400 font-sans italic">(optional feature schema)</span></div>
+                </div>
               </div>
             </div>
           </div>
@@ -2559,8 +2661,9 @@ dataset = version.download("coco")`
                 )}
               </div>
             ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {displayedDatasets.map((d) => (
+              <>
+                <div className="grid grid-cols-1 gap-4">
+              {displayedDatasets.slice(0, 5).map((d) => (
                 d.isUploading ? (
                   <div
                     key={d.id}
@@ -2615,10 +2718,10 @@ dataset = version.download("coco")`
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-base text-slate-900 group-hover:text-blue-600 transition-colors">{d.name}</h4>
-                        <span className="text-[10px] text-slate-400 font-bold bg-slate-100 px-2 py-0.5 rounded-full">
-                          Click to inspect
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80">
+                          {d.domain || (d.category === 'tabular' ? 'Tabular' : 'Instance Segmentation / Object Detection')}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-1">{d.description}</p>
@@ -2678,6 +2781,27 @@ dataset = version.download("coco")`
                 )
               ))}
             </div>
+
+            {/* See All Datasets Button */}
+            {displayedDatasets.length > 0 && (
+              <div className="flex items-center justify-between pt-2 px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Showing {Math.min(5, displayedDatasets.length)} of {displayedDatasets.length} datasets
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAllDatasetsModal(true);
+                    setAllDatasetsPage(1);
+                  }}
+                  className="px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>See All ({displayedDatasets.length})</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+              </>
             )}
           </div>
         </div>
@@ -2764,7 +2888,7 @@ dataset = version.download("coco")`
                 </span>
 
                 <div className="space-y-2.5">
-                  {completedRuns.map((j) => {
+                  {completedRuns.slice(0, 5).map((j) => {
                     const isSelected = selectedResultJob?.id === j.id || (!selectedResultJob && completedRuns[0]?.id === j.id);
                     const finalAcc = j.mAP50 ? (j.mAP50 * 100).toFixed(1) : '94.5';
                     const finalMiou = j.mIoU ? (j.mIoU * 100).toFixed(1) : '89.2';
@@ -2830,6 +2954,26 @@ dataset = version.download("coco")`
                     );
                   })}
                 </div>
+
+                {/* See All Completed Runs Button */}
+                {completedRuns.length > 0 && (
+                  <div className="flex items-center justify-between pt-2 px-1">
+                    <span className="text-xs text-slate-500 font-medium">
+                      Showing {Math.min(5, completedRuns.length)} of {completedRuns.length} runs
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAllResultsModal(true);
+                        setAllResultsPage(1);
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>See All ({completedRuns.length})</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Right Column (8 cols): Detailed Result View */}
@@ -3348,13 +3492,51 @@ dataset = version.download("coco")`
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3.5 mb-5 pb-4 border-b border-slate-100">
+            <div className="flex items-center gap-3.5 mb-4 pb-4 border-b border-slate-100">
               <div className="p-3 rounded-2xl bg-blue-50 text-blue-600 border border-blue-100">
                 <BarChart3 className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="text-xl font-black text-slate-900">{analysisDataset.name}</h3>
                 <p className="text-xs text-slate-500">Comprehensive dataset distribution metrics & image analysis</p>
+              </div>
+            </div>
+
+            {/* Editable Dataset Domain Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl p-3 mb-5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700">Domain:</span>
+                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  {analysisDataset.domain || 'Instance Segmentation / Object Detection'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium">Edit Domain:</span>
+                <select
+                  value={analysisDataset.domain || 'Instance Segmentation / Object Detection'}
+                  onChange={async (e) => {
+                    const newDomain = e.target.value;
+                    try {
+                      const res = await fetch(`/api/datasets/${analysisDataset.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ domain: newDomain })
+                      });
+                      if (res.ok) {
+                        setAnalysisDataset((prev) => prev ? { ...prev, domain: newDomain } : null);
+                        setDatasets((prev) => prev.map((d) => d.id === analysisDataset.id ? { ...d, domain: newDomain } : d));
+                        handleOpenDatasetAnalysis({ ...analysisDataset, domain: newDomain });
+                      }
+                    } catch (err) {
+                      console.error('Failed to update dataset domain:', err);
+                    }
+                  }}
+                  className="text-xs font-bold bg-white border border-slate-300 rounded-xl px-2.5 py-1 text-slate-700 cursor-pointer shadow-xs focus:ring-2 focus:ring-blue-500/20"
+                >
+                  <option value="Instance Segmentation / Object Detection">Instance Segmentation / Object Detection</option>
+                  <option value="Image Classification">Image Classification</option>
+                  <option value="Tabular">Tabular</option>
+                </select>
               </div>
             </div>
 
@@ -3570,6 +3752,281 @@ dataset = version.download("coco")`
           </div>
         </div>
       )}
+
+      {/* MODAL 3: ALL JOBS QUEUE MODAL (10 per page) */}
+      {showAllJobsModal && (() => {
+        const allJobsTotalPages = Math.ceil(displayedJobs.length / 10) || 1;
+        const pagedAllJobs = displayedJobs.slice((allJobsPage - 1) * 10, allJobsPage * 10);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-3xl w-full border border-slate-100 shadow-2xl relative max-h-[92vh] flex flex-col">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-blue-50 text-blue-600">
+                    <Cpu className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">Training Job Queue</h3>
+                    <p className="text-xs text-slate-500">All submitted training jobs ({displayedJobs.length} total)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAllJobsModal(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-4 space-y-3 pr-1">
+                {pagedAllJobs.map((job) => (
+                  <div
+                    key={job.id}
+                    onClick={() => {
+                      setSelectedJob(job);
+                      setShowAllJobsModal(false);
+                    }}
+                    className="p-4 rounded-2xl border border-slate-200/90 hover:border-blue-400 hover:bg-blue-50/20 transition-all cursor-pointer shadow-xs group"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${job.status === 'running' ? 'bg-blue-600 animate-pulse' : job.status === 'completed' ? 'bg-emerald-500' : job.status === 'paused' ? 'bg-amber-500' : job.status === 'failed' ? 'bg-rose-500' : 'bg-slate-400'}`} />
+                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-blue-700 transition-colors">{job.name}</h4>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full mr-1.5 text-[10px]">{job.taskType}</span>
+                          Dataset: <strong className="text-slate-700">{job.datasetName}</strong> • Host: <strong className="text-slate-700">{job.device}</strong> • By: <strong className="text-slate-700">{job.submittedBy}</strong>
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${job.status === 'running' ? 'bg-blue-100 text-blue-800 border-blue-200' : job.status === 'completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : job.status === 'paused' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                          {job.stage === 'generating_results' ? 'Generating Results' : job.stage === 'unzipping' ? 'Unzipping' : job.status}
+                        </span>
+                        <div className="text-[11px] font-bold text-slate-500 mt-1">
+                          {job.currentEpoch}/{job.totalEpochs} Epochs ({job.progressPercent}%)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom Pagination */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs shrink-0">
+                <span className="text-slate-400 font-medium">
+                  Showing {(allJobsPage - 1) * 10 + 1} - {Math.min(displayedJobs.length, allJobsPage * 10)} of {displayedJobs.length} jobs
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={allJobsPage <= 1}
+                    onClick={() => setAllJobsPage((p) => Math.max(1, p - 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-slate-700" />
+                  </button>
+                  <span className="font-extrabold text-slate-800 px-2 select-none">
+                    {allJobsPage} out of {allJobsTotalPages}
+                  </span>
+                  <button
+                    disabled={allJobsPage >= allJobsTotalPages}
+                    onClick={() => setAllJobsPage((p) => Math.min(allJobsTotalPages, p + 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs"
+                  >
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL 4: ALL CATALOGUED DATASETS MODAL (10 per page) */}
+      {showAllDatasetsModal && (() => {
+        const allDatasetsTotalPages = Math.ceil(displayedDatasets.length / 10) || 1;
+        const pagedAllDatasets = displayedDatasets.slice((allDatasetsPage - 1) * 10, allDatasetsPage * 10);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-3xl w-full border border-slate-100 shadow-2xl relative max-h-[92vh] flex flex-col">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-indigo-50 text-indigo-600">
+                    <FolderOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">All Catalogued Datasets</h3>
+                    <p className="text-xs text-slate-500">Registered dataset archives ({displayedDatasets.length} total)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAllDatasetsModal(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-4 space-y-3 pr-1">
+                {pagedAllDatasets.map((d) => (
+                  <div
+                    key={d.id}
+                    onClick={() => {
+                      setShowAllDatasetsModal(false);
+                      handleOpenDatasetAnalysis(d);
+                    }}
+                    className="p-4 rounded-2xl border border-slate-200/90 hover:border-blue-400 hover:bg-blue-50/20 transition-all cursor-pointer shadow-xs group"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-blue-700 transition-colors">{d.name}</h4>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80">
+                            {d.domain || (d.category === 'tabular' ? 'Tabular' : 'Instance Segmentation / Object Detection')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-1">{d.description || 'No description provided'}</p>
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-2 font-medium">
+                          <span>Uploaded by <strong className="text-slate-600">{d.uploadedBy}</strong></span>
+                          <span>Size: <strong className="text-slate-600">{d.fileSizeMB} MB</strong></span>
+                          <span>Format: <strong className="text-slate-600 uppercase">{d.format}</strong></span>
+                        </div>
+                      </div>
+                      <span className="text-xs text-blue-600 font-bold group-hover:underline shrink-0">
+                        View Analysis →
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom Pagination */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs shrink-0">
+                <span className="text-slate-400 font-medium">
+                  Showing {(allDatasetsPage - 1) * 10 + 1} - {Math.min(displayedDatasets.length, allDatasetsPage * 10)} of {displayedDatasets.length} datasets
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={allDatasetsPage <= 1}
+                    onClick={() => setAllDatasetsPage((p) => Math.max(1, p - 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-slate-700" />
+                  </button>
+                  <span className="font-extrabold text-slate-800 px-2 select-none">
+                    {allDatasetsPage} out of {allDatasetsTotalPages}
+                  </span>
+                  <button
+                    disabled={allDatasetsPage >= allDatasetsTotalPages}
+                    onClick={() => setAllDatasetsPage((p) => Math.min(allDatasetsTotalPages, p + 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs"
+                  >
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL 5: ALL TRAINING RESULTS MODAL (10 per page) */}
+      {showAllResultsModal && (() => {
+        const allResultsTotalPages = Math.ceil(completedRuns.length / 10) || 1;
+        const pagedAllResults = completedRuns.slice((allResultsPage - 1) * 10, allResultsPage * 10);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-3xl w-full border border-slate-100 shadow-2xl relative max-h-[92vh] flex flex-col">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-600">
+                    <BarChart3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">All Completed Training Results</h3>
+                    <p className="text-xs text-slate-500">Historical model training runs ({completedRuns.length} total)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAllResultsModal(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-4 space-y-3 pr-1">
+                {pagedAllResults.map((j) => {
+                  const finalAcc = j.mAP50 ? (j.mAP50 * 100).toFixed(1) : '94.5';
+                  const finalMiou = j.mIoU ? (j.mIoU * 100).toFixed(1) : '89.2';
+
+                  return (
+                    <div
+                      key={j.id}
+                      onClick={() => {
+                        setSelectedResultJob(j);
+                        setShowAllResultsModal(false);
+                      }}
+                      className="p-4 rounded-2xl border border-slate-200/90 hover:border-emerald-400 hover:bg-emerald-50/20 transition-all cursor-pointer shadow-xs group"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-700 transition-colors">{j.name}</h4>
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                              {j.taskType || 'RF-DETR'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Dataset: <strong className="text-slate-700">{j.datasetName}</strong> • By: <strong className="text-slate-700">{j.submittedBy}</strong> • Completed: <strong className="text-slate-700">{j.completedAt ? new Date(j.completedAt).toLocaleDateString() : 'Recent'}</strong>
+                          </p>
+                          <div className="flex items-center gap-4 text-xs mt-2">
+                            <span className="text-slate-600 font-semibold">mIoU: <strong className="text-blue-700">{finalMiou}%</strong></span>
+                            <span className="text-slate-600 font-semibold">mAP50: <strong className="text-emerald-700">{finalAcc}%</strong></span>
+                            <span className="text-slate-400 font-medium">{j.totalEpochs} Epochs</span>
+                          </div>
+                        </div>
+                        <span className="text-xs text-emerald-600 font-bold group-hover:underline shrink-0">
+                          Inspect Results →
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Bottom Pagination */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs shrink-0">
+                <span className="text-slate-400 font-medium">
+                  Showing {(allResultsPage - 1) * 10 + 1} - {Math.min(completedRuns.length, allResultsPage * 10)} of {completedRuns.length} runs
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={allResultsPage <= 1}
+                    onClick={() => setAllResultsPage((p) => Math.max(1, p - 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-slate-700" />
+                  </button>
+                  <span className="font-extrabold text-slate-800 px-2 select-none">
+                    {allResultsPage} out of {allResultsTotalPages}
+                  </span>
+                  <button
+                    disabled={allResultsPage >= allResultsTotalPages}
+                    onClick={() => setAllResultsPage((p) => Math.min(allResultsTotalPages, p + 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs"
+                  >
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

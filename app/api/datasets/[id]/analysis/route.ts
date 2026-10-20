@@ -51,7 +51,11 @@ export async function GET(
       const scriptPath = path.join(process.cwd(), 'scripts', 'dataset_tools.py');
 
       const analysisResult = await new Promise<any>((resolve) => {
-        const child = spawn(pythonExe, [scriptPath, '--action', 'analyze', '--dataset_dir', datasetPath]);
+        const args = [scriptPath, '--action', 'analyze', '--dataset_dir', datasetPath];
+        if (dataset.domain) {
+          args.push('--domain', dataset.domain);
+        }
+        const child = spawn(pythonExe, args);
         let stdout = '';
         let stderr = '';
         child.stdout.on('data', (d) => { stdout += d.toString(); });

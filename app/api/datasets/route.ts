@@ -81,6 +81,7 @@ export async function POST(request: Request) {
       const roboflowSnippet = (formData.get('roboflowSnippet') as string) || '';
       const name = (formData.get('name') as string) || '';
       const category = (formData.get('category') as any) || 'vision';
+      const domain = (formData.get('domain') as string) || 'Instance Segmentation / Object Detection';
       const description = (formData.get('description') as string) || '';
       const uploadedBy = (formData.get('uploadedBy') as string) || 'ML Engineer';
       const file = formData.get('file') as File | null;
@@ -92,6 +93,7 @@ export async function POST(request: Request) {
             id: `ds-${Date.now().toString(36)}`,
             name: name.trim() || rfRes.name,
             category: 'vision',
+            domain,
             description: description.trim() || `Imported from Roboflow (${rfRes.project} v${rfRes.version})`,
             format: 'coco',
             fileSizeMB: rfRes.fileSizeMB || 10,
@@ -129,6 +131,7 @@ export async function POST(request: Request) {
         id: `ds-${Date.now().toString(36)}`,
         name: name || 'Custom Dataset',
         category,
+        domain,
         description,
         format: 'coco',
         fileSizeMB: fileSizeMB || 15,
@@ -144,6 +147,7 @@ export async function POST(request: Request) {
       return NextResponse.json(newDataset, { status: 201 });
     } else {
       const body = await request.json();
+      const domain = body.domain || 'Instance Segmentation / Object Detection';
 
       if (body.roboflowSnippet && body.roboflowSnippet.trim().length > 10) {
         try {
@@ -152,6 +156,7 @@ export async function POST(request: Request) {
             id: `ds-${Date.now().toString(36)}`,
             name: body.name?.trim() || rfRes.name,
             category: 'vision',
+            domain,
             description: body.description?.trim() || `Imported from Roboflow (${rfRes.project} v${rfRes.version})`,
             format: 'coco',
             fileSizeMB: rfRes.fileSizeMB || 10,
@@ -174,6 +179,7 @@ export async function POST(request: Request) {
         id: `ds-${Date.now().toString(36)}`,
         name: body.name || 'New Dataset',
         category: body.category || 'vision',
+        domain,
         description: body.description || '',
         format: 'coco',
         fileSizeMB: body.fileSizeMB || 50,

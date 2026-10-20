@@ -31,6 +31,7 @@ import {
   History,
   X,
   ExternalLink,
+  ChevronLeft,
   ChevronRight,
   ShieldCheck,
   Building2,
@@ -313,6 +314,14 @@ export function InventoryView() {
 
     return matchCat && matchSearch;
   });
+
+  const [inventoryPage, setInventoryPage] = useState(1);
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [filterCategory, searchQuery]);
+
+  const inventoryTotalPages = Math.ceil(filteredInventory.length / 10) || 1;
+  const pagedInventory = filteredInventory.slice((inventoryPage - 1) * 10, inventoryPage * 10);
 
   // Filtered onsite deployments
   const filteredOnsite = (showReturnedOnsite ? allOnsiteDeployments : activeOnsiteDeployments).filter((d) => {
@@ -720,7 +729,7 @@ export function InventoryView() {
                 <p className="text-xs">Try adjusting your search query or add a new device</p>
               </div>
             ) : (
-              filteredInventory.map((item) => {
+              pagedInventory.map((item) => {
                 const activeBorrows = (item.borrowHistory || []).filter(
                   (r) => r.status === 'active' && r.type === 'borrow'
                 );
@@ -754,9 +763,14 @@ export function InventoryView() {
                           <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{item.specs}</p>
                         </div>
                       </div>
-                      <span className="font-mono text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 shrink-0">
-                        {item.assetTag}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className="font-mono text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200">
+                          {item.assetTag}
+                        </span>
+                        <span className="font-mono text-[10px] font-bold text-slate-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/70">
+                          SN: {item.serialNumber || 'N/A'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Stock & Location Bar */}
@@ -801,22 +815,6 @@ export function InventoryView() {
                         >
                           <Plus className="w-3 h-3 text-blue-600" />
                           <span>Stock</span>
-                        </button>
-                        <button
-                          disabled={item.availableQuantity <= 0}
-                          onClick={() => {
-                            setShowBorrowModal(item);
-                            setBorrowForm({
-                              quantity: 1,
-                              assignedTo: user?.name || '',
-                              expectedReturnDate: '',
-                              purpose: ''
-                            });
-                          }}
-                          className="flex-1 py-1.5 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold text-[11px] flex items-center justify-center gap-1 transition-colors border border-blue-200 disabled:opacity-40 cursor-pointer"
-                        >
-                          <ArrowRight className="w-3 h-3" />
-                          <span>Borrow</span>
                         </button>
                         <button
                           disabled={item.availableQuantity <= 0}
@@ -902,7 +900,7 @@ export function InventoryView() {
                     </td>
                   </tr>
                 ) : (
-                  filteredInventory.map((item) => {
+                  pagedInventory.map((item) => {
                     const activeBorrows = (item.borrowHistory || []).filter(
                       (r) => r.status === 'active' && r.type === 'borrow'
                     );
@@ -1037,26 +1035,7 @@ export function InventoryView() {
                               <span>Add</span>
                             </button>
 
-                            {/* Action 2: Borrow (Internal loan) */}
-                            <button
-                              disabled={item.availableQuantity <= 0}
-                              onClick={() => {
-                                setShowBorrowModal(item);
-                                setBorrowForm({
-                                  quantity: 1,
-                                  assignedTo: user?.name || '',
-                                  expectedReturnDate: '',
-                                  purpose: ''
-                                });
-                              }}
-                              title="Check out units for internal use"
-                              className="px-2.5 py-1 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold text-[11px] flex items-center gap-1 transition-colors border border-blue-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              <ArrowRight className="w-3 h-3" />
-                              <span>Borrow</span>
-                            </button>
-
-                            {/* Action 3: Take Out (Deploy to Onsite) */}
+                            {/* Action 2: Take Out (Deploy to Onsite) */}
                             <button
                               disabled={item.availableQuantity <= 0}
                               onClick={() => {
@@ -1125,6 +1104,42 @@ export function InventoryView() {
             </table>
           </div>
         </div>
+
+        {/* Pagination Navigation (Max 10 per page) */}
+        {filteredInventory.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200/80 text-xs px-1">
+            <span className="text-slate-400 font-medium">
+              Showing {(inventoryPage - 1) * 10 + 1} - {Math.min(filteredInventory.length, inventoryPage * 10)} of {filteredInventory.length} items
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={inventoryPage <= 1}
+                onClick={() => {
+                  setInventoryPage((p) => Math.max(1, p - 1));
+                  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs transition-colors"
+                title="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4 text-slate-700" />
+              </button>
+              <span className="font-extrabold text-slate-800 px-2 select-none">
+                {inventoryPage} out of {inventoryTotalPages}
+              </span>
+              <button
+                disabled={inventoryPage >= inventoryTotalPages}
+                onClick={() => {
+                  setInventoryPage((p) => Math.min(inventoryTotalPages, p + 1));
+                  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs transition-colors"
+                title="Next page"
+              >
+                <ChevronRight className="w-4 h-4 text-slate-700" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       )}
 
@@ -2053,6 +2068,49 @@ export function InventoryView() {
                     value={editForm.location}
                     onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
                     className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200"
+                  />
+                </div>
+
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Total Stock Units *
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={editForm.quantity}
+                    onChange={(e) => {
+                      const q = Math.max(0, parseInt(e.target.value, 10) || 0);
+                      const diff = q - editForm.quantity;
+                      setEditForm({
+                        ...editForm,
+                        quantity: q,
+                        availableQuantity: Math.max(0, editForm.availableQuantity + diff)
+                      });
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 font-bold"
+                  />
+                </div>
+
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Available In-Office Stock *
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={editForm.quantity}
+                    required
+                    value={editForm.availableQuantity}
+                    onChange={(e) => {
+                      const avail = Math.max(0, Math.min(editForm.quantity, parseInt(e.target.value, 10) || 0));
+                      setEditForm({
+                        ...editForm,
+                        availableQuantity: avail
+                      });
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl text-xs border border-slate-200 font-bold"
                   />
                 </div>
 

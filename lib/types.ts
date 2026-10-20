@@ -118,13 +118,16 @@ export interface TrainingJob {
   }>;
   hyperparameters: Record<string, any>;
   description?: string;
-  stage?: 'unzipping' | 'preparing' | 'training' | 'completed';
+  stage?: 'unzipping' | 'preparing' | 'training' | 'generating_results' | 'completed';
 }
+
+export type DatasetDomain = 'Instance Segmentation / Object Detection' | 'Image Classification' | 'Tabular';
 
 export interface Dataset {
   id: string;
   name: string;
   category: TaskCategory;
+  domain?: DatasetDomain | string;
   description: string;
   format: 'yolo' | 'coco' | 'csv' | 'images_folder' | 'json';
   fileSizeMB: number;
@@ -226,10 +229,10 @@ export interface StaffUser {
   name: string;
   email: string;
   password?: string;
-  role: 'General' | 'ML Engineer' | 'System Engineer' | 'Labeller' | 'Admin' | string;
+  role: 'General' | 'ML Engineer' | 'System Engineer' | 'Labeller' | 'Others' | 'Admin' | string;
   level: 'Admin' | 'Guest';
   avatar?: string;
-  department: string;
+  department?: string;
   joinedAt: string;
 }
 
@@ -238,9 +241,9 @@ export interface PendingUser {
   name: string;
   email: string;
   password?: string;
-  role: 'General' | 'ML Engineer' | 'System Engineer' | 'Labeller' | 'Admin' | string;
+  role: 'General' | 'ML Engineer' | 'System Engineer' | 'Labeller' | 'Others' | 'Admin' | string;
   level?: 'Admin' | 'Guest';
-  department: string;
+  department?: string;
   requestedAt: string;
   status: 'pending' | 'approved' | 'rejected';
   approvedBy?: string;

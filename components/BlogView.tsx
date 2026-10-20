@@ -28,7 +28,9 @@ import {
   AlertCircle,
   FileCode,
   Paperclip,
-  Package
+  Package,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 function getInitials(name?: string) {
@@ -225,6 +227,7 @@ export function BlogView() {
   // Additional attachments for both Upload and Custom Blog modes
   const [additionalFiles, setAdditionalFiles] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<BlogAttachment[]>([]);
+  const [blogsPage, setBlogsPage] = useState(1);
 
   const loadBlogs = async () => {
     try {
@@ -626,6 +629,13 @@ export function BlogView() {
     return matchCat && matchSearch;
   });
 
+  useEffect(() => {
+    setBlogsPage(1);
+  }, [selectedCategory, searchQuery]);
+
+  const blogsTotalPages = Math.ceil(filteredBlogs.length / 10) || 1;
+  const pagedBlogs = filteredBlogs.slice((blogsPage - 1) * 10, blogsPage * 10);
+
   const renderAttachmentPicker = (inputId: string) => (
     <div className="pt-2 border-t border-slate-100 space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -749,18 +759,7 @@ export function BlogView() {
           </p>
         </div>
 
-        {readingPost ? (
-          <button
-            onClick={() => {
-              setReadingPost(null);
-              if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-all w-full sm:w-auto cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Guidance</span>
-          </button>
-        ) : (
+        {!readingPost && (
           <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all w-full sm:w-auto cursor-pointer"
@@ -1056,9 +1055,10 @@ export function BlogView() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredBlogs.map((post) => {
-                const isDoc = Boolean(post.attachment);
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {pagedBlogs.map((post) => {
+                  const isDoc = Boolean(post.attachment);
 
                 return (
                   <div
@@ -1241,6 +1241,43 @@ export function BlogView() {
                 );
               })}
             </div>
+
+            {/* Pagination Navigation (Max 10 per page) */}
+            {filteredBlogs.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 border-t border-slate-100 text-xs mt-6">
+                <span className="text-slate-400 font-medium">
+                  Showing {(blogsPage - 1) * 10 + 1} - {Math.min(filteredBlogs.length, blogsPage * 10)} of {filteredBlogs.length} documents
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={blogsPage <= 1}
+                    onClick={() => {
+                      setBlogsPage((p) => Math.max(1, p - 1));
+                      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs transition-colors"
+                    title="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-slate-700" />
+                  </button>
+                  <span className="font-extrabold text-slate-800 px-2 select-none">
+                    {blogsPage} out of {blogsTotalPages}
+                  </span>
+                  <button
+                    disabled={blogsPage >= blogsTotalPages}
+                    onClick={() => {
+                      setBlogsPage((p) => Math.min(blogsTotalPages, p + 1));
+                      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="p-1.5 sm:p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs transition-colors"
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
           )}
         </>
       )}

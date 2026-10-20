@@ -41,6 +41,7 @@ def generate_result_bundle(
     hyperparameters: dict = None,
     submitted_by: str = "ML Engineer",
     total_epochs: int = 100,
+    classes: list = None,
 ):
     job_dir = Path(output_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -56,6 +57,53 @@ def generate_result_bundle(
     backbone = hyperparameters.get("backbone")
     if not backbone or "yolo" in str(backbone).lower():
         backbone = f"RF-DETR {'ResNet-50' if is_bbox else 'Swin-Small'}"
+
+    # Resolve Dataset Classes comprehensively
+    dataset_classes = [str(c).strip() for c in (classes or hyperparameters.get("classes") or []) if str(c).strip()]
+    if not dataset_classes and dataset_dir:
+        cand_files = ["_annotations.coco.json", "annotation.json", "annotations.json", "instances_val.json", "instances_train.json"]
+        for cand_sub in ["valid", "val", "train", "annotations", ""]:
+            for cf in cand_files:
+                ann_cand = Path(dataset_dir) / cand_sub / cf if cand_sub else Path(dataset_dir) / cf
+                if ann_cand.exists():
+                    try:
+                        with open(ann_cand, "r", encoding="utf-8") as af:
+                            ann_d = json.load(af)
+                            cats = ann_d.get("categories", [])
+                            dataset_classes = [c.get("name") for c in cats if c.get("name")]
+                            if dataset_classes:
+                                break
+                    except Exception:
+                        pass
+            if dataset_classes:
+                break
+
+        # Check data.yaml (YOLO format)
+        if not dataset_classes:
+            yaml_cand = Path(dataset_dir) / "data.yaml"
+            if yaml_cand.exists():
+                try:
+                    with open(yaml_cand, "r", encoding="utf-8") as yf:
+                        for line in yf:
+                            if line.strip().startswith("names:"):
+                                rest = line.split("names:", 1)[1].strip()
+                                if rest.startswith("[") and rest.endswith("]"):
+                                    dataset_classes = [x.strip(" '\"") for x in rest[1:-1].split(",") if x.strip(" '\"")]
+                except Exception:
+                    pass
+
+        # Check image classification subdirectories
+        if not dataset_classes:
+            for cand_sub in ["train", "valid", "val"]:
+                sdir = Path(dataset_dir) / cand_sub
+                if sdir.exists() and sdir.is_dir():
+                    sub_dirs = [d.name for d in sdir.iterdir() if d.is_dir() and not d.name.startswith(".")]
+                    if sub_dirs:
+                        dataset_classes = sorted(sub_dirs)
+                        break
+
+    if not dataset_classes:
+        dataset_classes = ["defect", "background"]
 
     epochs = int(hyperparameters.get("epochs") or total_epochs or 100)
     batch_size = int(hyperparameters.get("batch_size") or hyperparameters.get("batchSize") or 4)
@@ -171,6 +219,9 @@ created_at: "{datetime.utcnow().isoformat()}"
         "task": "object_detection" if is_bbox else "instance_segmentation",
         "model_architecture": arch,
         "backbone": backbone,
+        "classes": dataset_classes,
+        "class_names": dataset_classes,
+        "num_classes": len(dataset_classes),
         "experiment_name": experiment_name,
         "run_name": run_name,
         "dataset_dir": dataset_dir,
@@ -285,19 +336,6 @@ created_at: "{datetime.utcnow().isoformat()}"
     cm_json_path = job_dir / "confusion_matrix.json"
     try:
         from scripts.confusion_matrix import generate_confusion_matrix
-        dataset_classes = hyperparameters.get("classes") or []
-        if not dataset_classes and dataset_dir:
-            for cand_sub in ["valid", "train", ""]:
-                ann_cand = Path(dataset_dir) / cand_sub / "annotation.json"
-                if ann_cand.exists():
-                    try:
-                        with open(ann_cand, "r", encoding="utf-8") as af:
-                            ann_d = json.load(af)
-                            dataset_classes = [c.get("name") for c in ann_d.get("categories", []) if c.get("name")]
-                            if dataset_classes:
-                                break
-                    except Exception:
-                        pass
         generate_confusion_matrix(str(job_dir), dataset_classes, job_id=job_id)
     except Exception as e:
         print(f"[Warning] Failed to generate confusion matrix: {e}", file=sys.stderr)
@@ -361,8 +399,17 @@ if __name__ == "__main__":
     parser.add_argument("--is_bbox", action="store_true", help="Set if object detection / bbox")
     parser.add_argument("--epochs", type=int, default=100, help="Total epochs")
     parser.add_argument("--submitted_by", type=str, default="ML Engineer", help="User")
+    parser.add_argument("--classes_json", type=str, default="", help="JSON string or comma list of classes")
 
     args = parser.parse_args()
+
+    cli_classes = None
+    if args.classes_json:
+        try:
+            cli_classes = json.loads(args.classes_json)
+        except Exception:
+            cli_classes = [c.strip() for c in args.classes_json.split(",") if c.strip()]
+
     res = generate_result_bundle(
         job_id=args.job_id,
         output_dir=args.output_dir,
@@ -372,6 +419,7 @@ if __name__ == "__main__":
         model_architecture=args.model_architecture,
         is_bbox=args.is_bbox,
         total_epochs=args.epochs,
-        submitted_by=args.submitted_by
+        submitted_by=args.submitted_by,
+        classes=cli_classes
     )
     print(json.dumps(res))
