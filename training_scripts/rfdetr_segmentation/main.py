@@ -29,6 +29,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw, ImageFont
 
+import codecs
+
+# Force UTF-8 encoding for standard output and error streams on Windows
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+if sys.stderr.encoding.lower() != 'utf-8':
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 # Force unbuffered standard output for real-time terminal streaming
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -988,6 +996,7 @@ def train_rfdetr(
             early_stopping=early_stopping,
             early_stopping_patience=early_stopping_patience,
             class_names=class_names,
+            compute_val_loss=True,
         )
     except Exception as te:
         print(f"[RF-DETR Training Notice] Caught exception or completed: {te}", flush=True)
