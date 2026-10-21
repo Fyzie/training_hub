@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import { DATA_DIR, ensureStorageHub } from '@/lib/storage';
+import { getEnvHubConfig } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,10 +132,6 @@ function stopTunnelProcess() {
     globalThis.__cloudflared_proc = null;
   }
 
-  try {
-    execSync('taskkill /f /im cloudflared.exe', { stdio: 'ignore' });
-  } catch {}
-
   saveTunnelConfig({ tunnelUrl: '', isActive: false });
 }
 
@@ -160,7 +157,7 @@ async function startTunnelProcess(): Promise<{ success: boolean; tunnelUrl?: str
     };
   }
 
-  // Ensure any existing cloudflared process is killed first
+  // Ensure any existing child quick-tunnel process is stopped first
   stopTunnelProcess();
 
   const dataDir = path.dirname(TUNNEL_LOG_FILE);
@@ -247,11 +244,19 @@ export async function GET() {
   const config = getTunnelConfig();
   const running = isCloudflaredRunning();
   const cloudflareInstalled = Boolean(findCloudflared());
+  const env = getEnvHubConfig();
+  const customAppUrl = env.APP_URL || '';
 
   let activeUrl = config.tunnelUrl;
   let activeState = running;
+  let tunnelType = config.tunnelType || 'cloudflare_quick';
 
-  if (running) {
+  // If a custom permanent domain is configured (e.g. https://hub.hafizimalik.com or https://hub.irnow.com.my)
+  if (customAppUrl) {
+    activeUrl = customAppUrl;
+    tunnelType = 'cloudflare_named';
+    activeState = running;
+  } else if (running) {
     // If running but tunnelUrl is missing from config, check log file
     if (!activeUrl) {
       const logUrl = extractUrlFromLog();
@@ -277,7 +282,8 @@ export async function GET() {
     port: 3000,
     lanUrl: `http://${localIp}:3000`,
     localhostUrl: 'http://localhost:3000',
-    tunnelType: config.tunnelType || 'cloudflare_quick',
+    tunnelType,
+    customAppUrl,
     lastChecked: config.lastChecked
   });
 }

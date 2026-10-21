@@ -23,7 +23,17 @@ interface TunnelModalProps {
 }
 
 export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalProps) {
-  const [networkInfo, setNetworkInfo] = useState({
+  const [networkInfo, setNetworkInfo] = useState<{
+    localIp: string;
+    port: number;
+    lanUrl: string;
+    localhostUrl: string;
+    tunnelUrl: string;
+    isActive: boolean;
+    cloudflareInstalled: boolean;
+    tunnelType?: string;
+    customAppUrl?: string;
+  }>({
     localIp: '127.0.0.1',
     port: 3000,
     lanUrl: 'http://localhost:3000',
@@ -219,7 +229,11 @@ export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalP
                 </div>
                 <div>
                   <h4 className="font-extrabold text-sm text-slate-900">Worldwide Remote Access</h4>
-                  <p className="text-[11px] text-slate-500">Cloudflare Quick Tunnel (Anywhere)</p>
+                  <p className="text-[11px] text-slate-500">
+                    {networkInfo.tunnelType === 'cloudflare_named'
+                      ? 'Cloudflare Zero Trust (Permanent Domain)'
+                      : 'Cloudflare Quick Tunnel (Anywhere)'}
+                  </p>
                 </div>
               </div>
 
@@ -282,15 +296,26 @@ export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalP
                     )}
                   </button>
 
-                  <button
-                    onClick={handleStartTunnel}
-                    disabled={isStarting || isStopping}
-                    title="Generate New Tunnel Address"
-                    className="px-3 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isStarting ? 'animate-spin' : ''}`} />
-                    <span>New URL</span>
-                  </button>
+                  {networkInfo.tunnelType !== 'cloudflare_named' ? (
+                    <button
+                      onClick={handleStartTunnel}
+                      disabled={isStarting || isStopping}
+                      title="Generate New Tunnel Address"
+                      className="px-3 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isStarting ? 'animate-spin' : ''}`} />
+                      <span>New URL</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={fetchNetwork}
+                      title="Refresh status"
+                      className="px-3 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Refresh</span>
+                    </button>
+                  )}
                 </>
               )}
             </div>
