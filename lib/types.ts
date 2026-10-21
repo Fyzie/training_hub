@@ -97,6 +97,8 @@ export interface TrainingJob {
   valAccuracy?: number;
   mAP50?: number;
   mAP50_95?: number;
+  precision?: number;
+  recall?: number;
   mIoU?: number;
   diceScore?: number;
   confusionMatrix?: {
