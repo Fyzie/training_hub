@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import { UPLOADS_DIR } from '@/lib/storage';
+import { getHostPythonExe } from '@/lib/python-runtime';
 
 // Map common file extensions to MIME types
 const MIME_TYPES: Record<string, string> = {
@@ -50,6 +52,20 @@ export async function GET(
 
     if (!isAllowed) {
       return new NextResponse('Forbidden', { status: 403 });
+    }
+
+    // Auto-generate result_bundle.zip on the fly if requested and not yet existing on disk
+    if (!fs.existsSync(/*turbopackIgnore: true*/ resolvedFilePath) && relativePath.toLowerCase().endsWith('result_bundle.zip')) {
+      const parentDir = path.dirname(resolvedFilePath);
+      if (fs.existsSync(parentDir)) {
+        try {
+          const pythonExe = getHostPythonExe();
+          const pyScript = `import zipfile, os, sys; run_dir, zip_path = sys.argv[1], sys.argv[2]; z = zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED); [z.write(os.path.join(root, f), os.path.relpath(os.path.join(root, f), run_dir)) for root, _, files in os.walk(run_dir) for f in files if not f.endswith('.zip')]; z.close()`;
+          execSync(`"${pythonExe}" -c "${pyScript}" "${parentDir}" "${resolvedFilePath}"`, { timeout: 15000, windowsHide: true });
+        } catch (ze) {
+          console.error('Failed on-the-fly zip creation:', ze);
+        }
+      }
     }
 
     if (!fs.existsSync(/*turbopackIgnore: true*/ resolvedFilePath)) {

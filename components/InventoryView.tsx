@@ -33,6 +33,9 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  LayoutList,
   ShieldCheck,
   Building2,
   Briefcase,
@@ -65,6 +68,8 @@ export function InventoryView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [showReturnedOnsite, setShowReturnedOnsite] = useState(false);
+  const [onsiteViewMode, setOnsiteViewMode] = useState<'device' | 'location'>('device');
+  const [collapsedLocations, setCollapsedLocations] = useState<Record<string, boolean>>({});
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -336,6 +341,42 @@ export function InventoryView() {
     );
   });
 
+  // Grouped onsite deployments by location
+  const deploymentsByLocation = useMemo(() => {
+    const map: Record<string, OnsiteDeployment[]> = {};
+    filteredOnsite.forEach((d) => {
+      const loc = (d.onsiteLocation || 'Unspecified Location').trim();
+      if (!map[loc]) {
+        map[loc] = [];
+      }
+      map[loc].push(d);
+    });
+    return map;
+  }, [filteredOnsite]);
+
+  const locationEntries = useMemo(() => {
+    return Object.entries(deploymentsByLocation).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [deploymentsByLocation]);
+
+  const toggleLocationCollapse = (loc: string) => {
+    setCollapsedLocations((prev) => ({
+      ...prev,
+      [loc]: !prev[loc],
+    }));
+  };
+
+  const expandAllLocations = () => {
+    setCollapsedLocations({});
+  };
+
+  const collapseAllLocations = () => {
+    const collapsed: Record<string, boolean> = {};
+    locationEntries.forEach(([loc]) => {
+      collapsed[loc] = true;
+    });
+    setCollapsedLocations(collapsed);
+  };
+
   // Handle Add New or Increment Existing Device
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -580,9 +621,6 @@ export function InventoryView() {
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
             Hardware & Office Assets
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Internal office workstation allocation, office storage inventory, and onsite project deployments
-          </p>
         </div>
 
         <button
@@ -700,10 +738,39 @@ export function InventoryView() {
             ))}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* View Mode Toggle: Per Device vs Per Location */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/70">
+              <button
+                type="button"
+                onClick={() => setOnsiteViewMode('device')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  onsiteViewMode === 'device'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <LayoutList className="w-3.5 h-3.5 text-slate-500" />
+                <span>View Per Device</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOnsiteViewMode('location')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  onsiteViewMode === 'location'
+                    ? 'bg-white text-amber-950 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5 text-amber-600" />
+                <span>View Per Onsite Location</span>
+              </button>
+            </div>
+
             <button
+              type="button"
               onClick={() => setShowReturnedOnsite(!showReturnedOnsite)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
                 showReturnedOnsite
                   ? 'bg-amber-100 text-amber-900 border-amber-300'
                   : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border-slate-200'
@@ -711,6 +778,26 @@ export function InventoryView() {
             >
               {showReturnedOnsite ? 'Showing All (Active & Returned)' : 'Show Active Only'}
             </button>
+
+            {onsiteViewMode === 'location' && locationEntries.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs ml-auto">
+                <button
+                  type="button"
+                  onClick={expandAllLocations}
+                  className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-bold transition-colors cursor-pointer"
+                >
+                  Expand All
+                </button>
+                <span className="text-slate-300">•</span>
+                <button
+                  type="button"
+                  onClick={collapseAllLocations}
+                  className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-bold transition-colors cursor-pointer"
+                >
+                  Collapse All
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1156,7 +1243,9 @@ export function InventoryView() {
                   <MapPin className="w-4 h-4 text-amber-600" />
                   <span>Onsite Project Deployments</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">Hardware active at client sites</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {onsiteViewMode === 'location' ? 'Grouped by client deployment site' : 'Hardware active at client sites'}
+                </p>
               </div>
               <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
                 {totalOnsiteUnits} Units
@@ -1169,7 +1258,100 @@ export function InventoryView() {
                 <p className="font-bold text-slate-700 text-sm">No onsite hardware deployments found</p>
                 <p className="text-xs">Click "Takeout" on any in-house inventory item to deploy it onsite</p>
               </div>
+            ) : onsiteViewMode === 'location' ? (
+              /* Mobile View Grouped by Location */
+              locationEntries.map(([locationName, items]) => {
+                const isCollapsed = Boolean(collapsedLocations[locationName]);
+                const locTotalUnits = items.reduce((s, it) => s + it.quantity, 0);
+                const locActiveUnits = items.filter((it) => it.status === 'active').reduce((s, it) => s + it.quantity, 0);
+                return (
+                  <div key={locationName} className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggleLocationCollapse(locationName)}
+                      className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-50/60 transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="p-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                          <Building2 className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-sm text-slate-900 truncate">{locationName}</h4>
+                          <p className="text-[11px] text-slate-500">
+                            {items.length} {items.length === 1 ? 'device' : 'devices'} • {locTotalUnits} units
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900">
+                          {locActiveUnits} Active
+                        </span>
+                        {isCollapsed ? (
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <ChevronUp className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+                    </button>
+
+                    {!isCollapsed && (
+                      <div className="p-3 pt-0 space-y-2.5 border-t border-slate-100">
+                        {items.map((d) => (
+                          <div key={d.recordId} className="bg-slate-50/80 rounded-xl p-3 border border-slate-200/60 space-y-2 mt-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-extrabold text-slate-900 text-sm">{d.deviceName}</span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200/70 text-slate-700">
+                                    {d.category}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{d.specs}</p>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-xl bg-amber-100 text-amber-950 font-black text-xs border border-amber-200 shrink-0">
+                                {d.quantity} units
+                              </span>
+                            </div>
+
+                            <div className="text-xs space-y-1">
+                              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                <span>By: <strong>{d.assignedTo}</strong></span>
+                                <span>{d.assignedDate}</span>
+                              </div>
+                              {d.purpose && (
+                                <p className="text-[11px] text-slate-600 line-clamp-2 italic pt-1 border-t border-slate-200/50">
+                                  "{d.purpose}"
+                                </p>
+                              )}
+                            </div>
+
+                            {d.status === 'active' ? (
+                              <button
+                                disabled={returningRecordId === d.recordId}
+                                onClick={() => handleReturnOnsite(d)}
+                                className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                {returningRecordId === d.recordId ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CornerUpLeft className="w-3.5 h-3.5" />
+                                )}
+                                <span>Return Hardware to Office</span>
+                              </button>
+                            ) : (
+                              <div className="text-[11px] font-bold text-slate-400 text-center py-1">
+                                Returned {d.returnedDate ? `on ${d.returnedDate}` : ''}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             ) : (
+              /* Mobile View Flat Per Device */
               filteredOnsite.map((d) => (
                 <div key={d.recordId} className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs space-y-2.5">
                   <div className="flex items-start justify-between gap-2">
@@ -1217,126 +1399,249 @@ export function InventoryView() {
             )}
           </div>
 
-          {/* Desktop Onsite Table (hidden on mobile) */}
-          <div className="hidden md:block bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4 p-5">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div>
-                <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-amber-600" />
-                  <span>Active Onsite Project Deployments</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Any hardware taken out for client projects is registered here until checked back in to the office
+          {/* Desktop Onsite Section (hidden on mobile) */}
+          <div className="hidden md:block space-y-4">
+            {filteredOnsite.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-12 text-center text-slate-400">
+                <MapPin className="w-10 h-10 mx-auto text-amber-300 mb-2" />
+                <p className="font-bold text-slate-700">No onsite hardware deployments found</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Click "Take Out" on any in-house inventory item to deploy it onsite
                 </p>
               </div>
-
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
-                  {activeOnsiteDeployments.length} Active Deployments ({totalOnsiteUnits} Units)
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-amber-50/60 border-b border-amber-100 text-[11px] font-extrabold text-amber-900 uppercase tracking-wider">
-                    <th className="py-3 px-4">Device Deployed</th>
-                    <th className="py-3 px-4">Qty</th>
-                  <th className="py-3 px-4">Onsite Location</th>
-                  <th className="py-3 px-4">Deployed By & Date</th>
-                  <th className="py-3 px-4">Purpose / Notes</th>
-                  <th className="py-3 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {filteredOnsite.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-12 text-slate-400">
-                      <MapPin className="w-10 h-10 mx-auto text-amber-300 mb-2" />
-                      <p className="font-bold text-slate-700">No onsite hardware deployments found</p>
-                      <p className="text-[11px]">Click "Take Out" on any in-house inventory item to deploy it onsite</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredOnsite.map((d) => {
-                    const isActive = d.status === 'active';
-                    return (
-                      <tr
-                        key={d.recordId}
-                        className={`transition-colors ${
-                          isActive ? 'hover:bg-amber-50/30' : 'bg-slate-50/50 opacity-70'
-                        }`}
+            ) : onsiteViewMode === 'location' ? (
+              /* Desktop View Grouped by Location (Collapsible) */
+              <div className="space-y-3.5">
+                {locationEntries.map(([locationName, items]) => {
+                  const isCollapsed = Boolean(collapsedLocations[locationName]);
+                  const locTotalUnits = items.reduce((s, it) => s + it.quantity, 0);
+                  const locActiveUnits = items.filter((it) => it.status === 'active').reduce((s, it) => s + it.quantity, 0);
+                  return (
+                    <div
+                      key={locationName}
+                      className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden transition-all"
+                    >
+                      {/* Collapsible Header */}
+                      <div
+                        onClick={() => toggleLocationCollapse(locationName)}
+                        className="p-4 px-6 flex items-center justify-between cursor-pointer hover:bg-slate-50/70 transition-colors select-none"
                       >
-                        {/* Device */}
-                        <td className="py-3.5 px-4">
-                          <div>
-                            <p className="font-extrabold text-slate-900 text-sm">{d.deviceName}</p>
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
-                              {d.category}
-                            </span>
-                            <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{d.specs}</p>
+                        <div className="flex items-center gap-3.5">
+                          <div className="p-2.5 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200">
+                            <Building2 className="w-5 h-5" />
                           </div>
-                        </td>
+                          <div>
+                            <div className="flex items-center gap-2.5">
+                              <h4 className="font-extrabold text-base text-slate-900">{locationName}</h4>
+                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-950 border border-amber-200">
+                                {locActiveUnits} Active Units
+                              </span>
+                              {locTotalUnits > locActiveUnits && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
+                                  {locTotalUnits - locActiveUnits} Returned
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {items.length} {items.length === 1 ? 'hardware device registered' : 'hardware devices registered'} at this facility ({locTotalUnits} total units)
+                            </p>
+                          </div>
+                        </div>
 
-                        {/* Qty */}
-                        <td className="py-3.5 px-4">
-                          <span className="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-950 font-black text-xs border border-amber-200">
-                            {d.quantity} units
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-slate-500">
+                            {isCollapsed ? 'Show Devices' : 'Hide Devices'}
                           </span>
-                        </td>
-
-                        {/* Onsite Location */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-1.5 text-slate-700 font-medium">
-                            <Building2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                            <span>{d.onsiteLocation}</span>
+                          <div className="p-1.5 rounded-xl bg-slate-100 text-slate-600">
+                            {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                           </div>
-                        </td>
+                        </div>
+                      </div>
 
-                        {/* Deployed By & Date */}
-                        <td className="py-3.5 px-4">
-                          <div>
-                            <p className="font-bold text-slate-800">{d.assignedTo}</p>
-                            <p className="text-[10px] text-slate-400">Deployed: {d.assignedDate}</p>
-                            {!isActive && d.returnedDate && (
-                              <p className="text-[10px] text-emerald-600 font-bold">Returned: {d.returnedDate}</p>
-                            )}
+                      {/* Devices Table for this Location */}
+                      {!isCollapsed && (
+                        <div className="border-t border-slate-100">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-amber-50/40 border-b border-amber-100/70 text-[11px] font-extrabold text-amber-900 uppercase tracking-wider">
+                                  <th className="py-2.5 px-6">Device Deployed</th>
+                                  <th className="py-2.5 px-4">Qty</th>
+                                  <th className="py-2.5 px-4">Deployed By & Date</th>
+                                  <th className="py-2.5 px-4">Purpose / Notes</th>
+                                  <th className="py-2.5 px-6 text-right">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 text-xs">
+                                {items.map((d) => {
+                                  const isActive = d.status === 'active';
+                                  return (
+                                    <tr
+                                      key={d.recordId}
+                                      className={`transition-colors ${
+                                        isActive ? 'hover:bg-amber-50/30' : 'bg-slate-50/50 opacity-70'
+                                      }`}
+                                    >
+                                      {/* Device */}
+                                      <td className="py-3.5 px-6">
+                                        <div>
+                                          <p className="font-extrabold text-slate-900 text-sm">{d.deviceName}</p>
+                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                            {d.category}
+                                          </span>
+                                          <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{d.specs}</p>
+                                        </div>
+                                      </td>
+
+                                      {/* Qty */}
+                                      <td className="py-3.5 px-4">
+                                        <span className="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-950 font-black text-xs border border-amber-200">
+                                          {d.quantity} units
+                                        </span>
+                                      </td>
+
+                                      {/* Deployed By & Date */}
+                                      <td className="py-3.5 px-4">
+                                        <div>
+                                          <p className="font-bold text-slate-800">{d.assignedTo}</p>
+                                          <p className="text-[10px] text-slate-400">Deployed: {d.assignedDate}</p>
+                                          {!isActive && d.returnedDate && (
+                                            <p className="text-[10px] text-emerald-600 font-bold">Returned: {d.returnedDate}</p>
+                                          )}
+                                        </div>
+                                      </td>
+
+                                      {/* Purpose */}
+                                      <td className="py-3.5 px-4">
+                                        <p className="text-slate-600 text-[11px] line-clamp-2 max-w-[280px]">
+                                          {d.purpose}
+                                        </p>
+                                      </td>
+
+                                      {/* Action: Return to In-House Inventory */}
+                                      <td className="py-3.5 px-6 text-right">
+                                        {isActive ? (
+                                          <button
+                                            disabled={returningRecordId === d.recordId}
+                                            onClick={() => handleReturnOnsite(d)}
+                                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] flex items-center gap-1.5 ml-auto shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                                          >
+                                            <RotateCcw className={`w-3.5 h-3.5 ${returningRecordId === d.recordId ? 'animate-spin' : ''}`} />
+                                            <span>{returningRecordId === d.recordId ? 'Returning...' : 'Return to Office'}</span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-[11px] font-bold text-slate-400">
+                                            Returned
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </div>
-                        </td>
-
-                        {/* Purpose */}
-                        <td className="py-3.5 px-4">
-                          <p className="text-slate-600 text-[11px] line-clamp-2 max-w-[200px]">
-                            {d.purpose}
-                          </p>
-                        </td>
-
-                        {/* Action: Return to In-House Inventory */}
-                        <td className="py-3.5 px-4 text-right">
-                          {isActive ? (
-                            <button
-                              disabled={returningRecordId === d.recordId}
-                              onClick={() => handleReturnOnsite(d)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] flex items-center gap-1.5 ml-auto shadow-sm transition-all disabled:opacity-50"
-                            >
-                              <RotateCcw className={`w-3.5 h-3.5 ${returningRecordId === d.recordId ? 'animate-spin' : ''}`} />
-                              <span>{returningRecordId === d.recordId ? 'Returning...' : 'Return to Office'}</span>
-                            </button>
-                          ) : (
-                            <span className="text-[11px] font-bold text-slate-400">
-                              Returned
-                            </span>
-                          )}
-                        </td>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Desktop View Flat Table Per Device */
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden p-5">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-amber-50/60 border-b border-amber-100 text-[11px] font-extrabold text-amber-900 uppercase tracking-wider">
+                        <th className="py-3 px-4">Device Deployed</th>
+                        <th className="py-3 px-4">Qty</th>
+                        <th className="py-3 px-4">Onsite Location</th>
+                        <th className="py-3 px-4">Deployed By & Date</th>
+                        <th className="py-3 px-4">Purpose / Notes</th>
+                        <th className="py-3 px-4 text-right">Action</th>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {filteredOnsite.map((d) => {
+                        const isActive = d.status === 'active';
+                        return (
+                          <tr
+                            key={d.recordId}
+                            className={`transition-colors ${
+                              isActive ? 'hover:bg-amber-50/30' : 'bg-slate-50/50 opacity-70'
+                            }`}
+                          >
+                            {/* Device */}
+                            <td className="py-3.5 px-4">
+                              <div>
+                                <p className="font-extrabold text-slate-900 text-sm">{d.deviceName}</p>
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                  {d.category}
+                                </span>
+                                <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{d.specs}</p>
+                              </div>
+                            </td>
+
+                            {/* Qty */}
+                            <td className="py-3.5 px-4">
+                              <span className="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-950 font-black text-xs border border-amber-200">
+                                {d.quantity} units
+                              </span>
+                            </td>
+
+                            {/* Onsite Location */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-1.5 text-slate-700 font-medium">
+                                <Building2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span>{d.onsiteLocation}</span>
+                              </div>
+                            </td>
+
+                            {/* Deployed By & Date */}
+                            <td className="py-3.5 px-4">
+                              <div>
+                                <p className="font-bold text-slate-800">{d.assignedTo}</p>
+                                <p className="text-[10px] text-slate-400">Deployed: {d.assignedDate}</p>
+                                {!isActive && d.returnedDate && (
+                                  <p className="text-[10px] text-emerald-600 font-bold">Returned: {d.returnedDate}</p>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Purpose */}
+                            <td className="py-3.5 px-4">
+                              <p className="text-slate-600 text-[11px] line-clamp-2 max-w-[200px]">
+                                {d.purpose}
+                              </p>
+                            </td>
+
+                            {/* Action: Return to In-House Inventory */}
+                            <td className="py-3.5 px-4 text-right">
+                              {isActive ? (
+                                <button
+                                  disabled={returningRecordId === d.recordId}
+                                  onClick={() => handleReturnOnsite(d)}
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] flex items-center gap-1.5 ml-auto shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                                >
+                                  <RotateCcw className={`w-3.5 h-3.5 ${returningRecordId === d.recordId ? 'animate-spin' : ''}`} />
+                                  <span>{returningRecordId === d.recordId ? 'Returning...' : 'Return to Office'}</span>
+                                </button>
+                              ) : (
+                                <span className="text-[11px] font-bold text-slate-400">
+                                  Returned
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
       </div>
       )}
 

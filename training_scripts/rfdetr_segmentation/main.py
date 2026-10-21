@@ -7,8 +7,7 @@ Features:
 - Direct terminal progress streaming from model.train()
 - Generation of training curves (results.png / metrics_curves.png) from metrics.csv
 - Full validation sample inferencing using trained best checkpoint
-- Generation of results.json with per-class mAP@50, mAP@50:95, precision, and recall
-- Generation of confusion_matrix.json and confusion_matrix.png
+- Generation of confusion_matrix.png
 - Generation of val_comparison.png (Ground Truth vs Prediction visual collage)
 - Checkpoint export to weights/ and result packaging (result_bundle.zip)
 """
@@ -29,17 +28,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw, ImageFont
 
-import codecs
+import io
 
-# Force UTF-8 encoding for standard output and error streams on Windows
-if sys.stdout.encoding.lower() != 'utf-8':
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-if sys.stderr.encoding.lower() != 'utf-8':
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
-
-# Force unbuffered standard output for real-time terminal streaming
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+# Force UTF-8 encoding with error replacement for Windows terminal streams
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if REPO_ROOT not in sys.path:
@@ -886,11 +881,9 @@ def mirror_artifacts_to_public_runs(output_dir: str, job_id: str, run_name: str)
     os.makedirs(public_run_dir, exist_ok=True)
 
     files_to_mirror = [
-        "results.json",
         "results.png",
         "metrics_curves.png",
         "metrics.csv",
-        "confusion_matrix.json",
         "confusion_matrix.png",
         "val_comparison.png",
         "training_metadata.json",
@@ -1020,11 +1013,9 @@ def train_rfdetr(
     # 4. Generate Training Curves from metrics.csv
     metrics_csv = os.path.join(output_dir, "metrics.csv")
     results_png = os.path.join(output_dir, "results.png")
-    curves_png = os.path.join(output_dir, "metrics_curves.png")
 
     if os.path.exists(metrics_csv):
         plot_training_results_from_metrics(metrics_csv, results_png)
-        plot_training_results_from_metrics(metrics_csv, curves_png)
     else:
         print(f"[Notice] metrics.csv not found at {metrics_csv}; skipping results curves.")
 
@@ -1054,20 +1045,7 @@ def train_rfdetr(
         conf_threshold=0.35,
     )
 
-    # Infer test split if available
-    test_dir = os.path.join(resolved_dataset_dir, "test")
-    test_results = None
-    if os.path.exists(test_dir):
-        test_results, _, _ = evaluate_split_inference(
-            model=infer_model,
-            split_dir=test_dir,
-            class_names=class_names,
-            cat_id_to_idx=cat_id_to_idx,
-            device=active_device,
-            conf_threshold=0.35,
-        )
-
-    # 6. Generate results.json matching exact schema
+    # 6. Extract validation metrics
     if valid_results:
         all_row = valid_results[-1]
         overall_map = all_row.get("map@50", 0.0)
@@ -1078,28 +1056,8 @@ def train_rfdetr(
         valid_results.append({"class": "all", "map@50:95": 0.0, "map@50": 0.0, "precision": 0.0, "recall": 0.0})
         overall_map = overall_prec = overall_rec = 0.0
 
-    results_data = {
-        "class_map": {
-            "valid": valid_results,
-        },
-        "map": overall_map,
-        "precision": overall_prec,
-        "recall": overall_rec,
-    }
-    if test_results:
-        results_data["class_map"]["test"] = test_results
-
-    results_json_path = os.path.join(output_dir, "results.json")
-    with open(results_json_path, "w", encoding="utf-8") as f:
-        json.dump(results_data, f, indent=4)
-    print(f"[Results JSON] Exported validation metrics to: {results_json_path}")
-
-    # 7. Generate Confusion Matrix (json & png)
+    # 7. Generate Confusion Matrix Heatmap (.png)
     if confusion_dict:
-        cm_json_path = os.path.join(output_dir, "confusion_matrix.json")
-        with open(cm_json_path, "w", encoding="utf-8") as f:
-            json.dump(confusion_dict, f, indent=4)
-
         cm_png_path = os.path.join(output_dir, "confusion_matrix.png")
         plot_confusion_matrix(confusion_dict["matrix"], class_names, cm_png_path)
 

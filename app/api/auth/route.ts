@@ -66,16 +66,16 @@ export async function POST(request: Request) {
 
       const emailResult = await sendEmail({
         to: user.email,
-        subject: 'Reset Your IRnow Hub Password',
+        subject: 'Reset Your IRnow Workspace Password',
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
               <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #2563eb;"></span>
-              <span style="font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">IRnow Hub Workstation</span>
+              <span style="font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">IRnow Workspace Workstation</span>
             </div>
             <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">Password Reset Request</h2>
             <p style="color: #475569; font-size: 14px; line-height: 1.6;">Hello <strong>${user.name}</strong>,</p>
-            <p style="color: #475569; font-size: 14px; line-height: 1.6;">We received a request to change your password for your IRnow Hub account. Click the button below to verify your email and set a new password:</p>
+            <p style="color: #475569; font-size: 14px; line-height: 1.6;">We received a request to change your password for your IRnow Workspace account. Click the button below to verify your email and set a new password:</p>
             <div style="text-align: center; margin: 28px 0;">
               <a href="${resetUrl}" style="background-color: #0f172a; color: #ffffff; padding: 12px 28px; border-radius: 9999px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">Verify & Reset Password</a>
             </div>
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
             <p style="color: #94a3b8; font-size: 11px;">Or copy and paste this link in your browser:<br/><a href="${resetUrl}" style="color: #2563eb;">${resetUrl}</a></p>
           </div>
         `,
-        text: `Reset your IRnow Hub password by visiting: ${resetUrl}`
+        text: `Reset your IRnow Workspace password by visiting: ${resetUrl}`
       });
 
       if (!emailResult.success) {

@@ -1,13 +1,13 @@
 @echo off
 setlocal enabledelayedexpansion
-title IRnow Hub - Launcher & Controller
+title IRnow Workspace - Launcher & Controller
 color 0B
 
 cd /d "%~dp0"
 
 :START
 echo =====================================================================
-echo                 IRnow Hub - WORKSTATION PORTAL
+echo                 IRnow Workspace - WORKSTATION PORTAL
 echo =====================================================================
 echo.
 
@@ -142,10 +142,10 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') 
 echo.
 echo [*] Starting Services:
 echo     1. Starting FastAPI Backend on port 8000...
-start "IRnow Hub - FastAPI Backend" /min cmd /c "set "PYTHON_EXE=!PYTHON_CMD!" && "!PYTHON_CMD!" run_backend.py"
+start "IRnow Workspace - FastAPI Backend" /min cmd /c "set "PYTHON_EXE=!PYTHON_CMD!" && "!PYTHON_CMD!" run_backend.py"
 
 echo     2. Starting Next.js Web Application on port 3000...
-start "IRnow Hub - Web Portal" /min cmd /c "set "PYTHON_EXE=!PYTHON_CMD!" && npx next start -H 0.0.0.0 -p 3000"
+start "IRnow Workspace - Web Portal" /min cmd /c "set "PYTHON_EXE=!PYTHON_CMD!" && npx next start -H 0.0.0.0 -p 3000"
 
 echo     3. Cloudflare Tunnel: Standby (Controlled on-demand via Web Portal Gateway)
 
@@ -164,7 +164,7 @@ start http://localhost:3000
 :MENU
 cls
 echo =====================================================================
-echo                 IRnow Hub - WORKSTATION PORTAL
+echo                 IRnow Workspace - WORKSTATION PORTAL
 echo =====================================================================
 echo.
 echo   [ACTIVE SERVICES]
@@ -202,7 +202,7 @@ goto MENU
 
 :SHUTDOWN
 echo.
-echo [*] Stopping all IRnow Hub services...
+echo [*] Stopping all IRnow Workspace services...
 call "%~dp0stop_hub.bat"
 echo [*] All services stopped cleanly. Goodbye!
 ping 127.0.0.1 -n 3 >nul

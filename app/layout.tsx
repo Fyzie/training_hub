@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'IRnow Hub',
+  title: 'IRnow Workspace',
   description: 'IRnow Sdn. Bhd.',
 };
 

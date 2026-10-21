@@ -7,7 +7,6 @@ Confusion Matrix Generator for All Vision Model Templates:
 
 Outputs:
 1. confusion_matrix.png (High-resolution heatmap visualization, crisp white UI)
-2. confusion_matrix.json (Structured data: matrix, classes, precision, recall, F1)
 """
 
 import os
@@ -21,7 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 def generate_confusion_matrix(output_dir: str, classes: list = None, job_id: str = "") -> dict:
     """
-    Generates confusion_matrix.png and confusion_matrix.json in output_dir.
+    Generates confusion_matrix.png in output_dir.
     Mirrors artifacts to public/uploads/runs/<job_id> for Next.js web portal.
     """
     out_path = Path(output_dir)
@@ -80,12 +79,7 @@ def generate_confusion_matrix(output_dir: str, classes: list = None, job_id: str
         "created_at": datetime.utcnow().isoformat()
     }
 
-    # 1. Save confusion_matrix.json
-    cm_json_path = out_path / "confusion_matrix.json"
-    with open(cm_json_path, "w", encoding="utf-8") as f:
-        json.dump(cm_data, f, indent=2)
-
-    # 2. Generate confusion_matrix.png heatmap
+    # Generate confusion_matrix.png heatmap
     try:
         font_title = ImageFont.truetype("arialbd.ttf", 16)
         font_sub = ImageFont.truetype("arial.ttf", 12)
@@ -176,7 +170,6 @@ def generate_confusion_matrix(output_dir: str, classes: list = None, job_id: str
     public_dir.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(str(cm_png_path), str(public_dir / "confusion_matrix.png"))
-        shutil.copy2(str(cm_json_path), str(public_dir / "confusion_matrix.json"))
     except Exception:
         pass
 

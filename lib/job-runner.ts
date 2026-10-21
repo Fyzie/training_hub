@@ -267,7 +267,7 @@ class JobScheduler {
               if (targetUser && targetUser.email) {
                 sendEmail({
                   to: targetUser.email,
-                  subject: `[IRnow Hub] Training Completed: ${job.name}`,
+                  subject: `[IRnow Workspace] Training Completed: ${job.name}`,
                   html: `
                     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
                       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
@@ -283,7 +283,7 @@ class JobScheduler {
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Best Loss:</strong> ${finalLoss.toFixed(4)}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Classes (${classes.length}):</strong> ${classes.join(', ')}</p>
                       </div>
-                      <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Hub workstation.</p>
+                      <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Workspace workstation.</p>
                     </div>
                   `,
                   text: `Training completed for ${job.name}. Final accuracy: ${(finalAcc * 100).toFixed(1)}%.`
@@ -388,7 +388,7 @@ class JobScheduler {
       if (targetUser && targetUser.email) {
         sendEmail({
           to: targetUser.email,
-          subject: `[IRnow Hub] Training Completed: ${job.name}`,
+          subject: `[IRnow Workspace] Training Completed: ${job.name}`,
           html: `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
@@ -403,7 +403,7 @@ class JobScheduler {
                 <p style="margin: 4px 0; font-size: 13px;"><strong>Final mAP / Accuracy:</strong> ${(finalAcc * 100).toFixed(1)}%</p>
                 <p style="margin: 4px 0; font-size: 13px;"><strong>Total Epochs:</strong> ${job.totalEpochs}</p>
               </div>
-              <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Hub workstation.</p>
+              <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Workspace workstation.</p>
             </div>
           `,
           text: `Training completed for ${job.name}. Final mAP / Accuracy: ${(finalAcc * 100).toFixed(1)}%.`
@@ -530,31 +530,22 @@ class JobScheduler {
         if (!currentJob) return;
 
         if (code === 0) {
-          // Read results.json if available
+          // Read metrics from training_metadata.json if available
           let finalAcc = 0.95;
-          const resultsJsonPath = path.join(jobDir, 'results.json');
-          if (fs.existsSync(resultsJsonPath)) {
+          const metaPath = path.join(jobDir, 'training_metadata.json');
+          if (fs.existsSync(metaPath)) {
             try {
-              const resData = JSON.parse(fs.readFileSync(resultsJsonPath, 'utf8'));
-              if (typeof resData.map === 'number') {
-                finalAcc = resData.map;
-                currentJob.mAP50 = resData.map;
+              const metaData = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+              if (metaData.metrics) {
+                if (typeof metaData.metrics.map50 === 'number') {
+                  finalAcc = metaData.metrics.map50;
+                  currentJob.mAP50 = metaData.metrics.map50;
+                }
+                if (typeof metaData.metrics.precision === 'number') currentJob.precision = metaData.metrics.precision;
+                if (typeof metaData.metrics.recall === 'number') currentJob.recall = metaData.metrics.recall;
               }
-              if (typeof resData.precision === 'number') currentJob.precision = resData.precision;
-              if (typeof resData.recall === 'number') currentJob.recall = resData.recall;
             } catch (e) {
-              console.error('Error parsing results.json:', e);
-            }
-          }
-
-          // Read confusion_matrix.json if available
-          const cmPath = path.join(jobDir, 'confusion_matrix.json');
-          if (fs.existsSync(cmPath)) {
-            try {
-              const cmData = JSON.parse(fs.readFileSync(cmPath, 'utf8'));
-              currentJob.confusionMatrix = cmData;
-            } catch (e) {
-              console.error('Error parsing confusion_matrix.json:', e);
+              console.error('Error parsing training_metadata.json:', e);
             }
           }
 

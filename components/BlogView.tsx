@@ -754,9 +754,6 @@ export function BlogView() {
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
             Guidance Docs & Knowledge Base
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Internal tutorials, SOPs, Word/PDF slides, and AI training guidelines
-          </p>
         </div>
 
         {!readingPost && (

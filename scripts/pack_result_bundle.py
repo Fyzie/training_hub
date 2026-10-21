@@ -366,8 +366,6 @@ created_at: "{datetime.utcnow().isoformat()}"
         print(f"[Warning] Failed to generate comparison collage: {e}", file=sys.stderr)
 
     # 7.5 Generate Confusion Matrix for all model templates
-    cm_png_path = job_dir / "confusion_matrix.png"
-    cm_json_path = job_dir / "confusion_matrix.json"
     try:
         from scripts.confusion_matrix import generate_confusion_matrix
         generate_confusion_matrix(str(job_dir), dataset_classes, job_id=job_id)

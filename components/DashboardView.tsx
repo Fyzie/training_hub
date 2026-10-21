@@ -17,7 +17,8 @@ import {
   Layers,
   BookOpen,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  User
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -67,6 +68,27 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
   const queuedCount = jobs.filter((j) => j.status === 'queued').length;
   const completedCount = jobs.filter((j) => j.status === 'completed').length;
 
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getElapsedRunningTime = (startedAt?: string, submittedAt?: string) => {
+    const start = startedAt || submittedAt;
+    if (!start) return '0s';
+    const startTime = new Date(start).getTime();
+    if (isNaN(startTime)) return '0s';
+    const diffSec = Math.max(0, Math.floor((currentTime - startTime) / 1000));
+    const hrs = Math.floor(diffSec / 3600);
+    const mins = Math.floor((diffSec % 3600) / 60);
+    const secs = diffSec % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  };
+
   // GPU values with fallback defaults
   const gpuTemp = metrics?.gpu.temperature ?? 45;
   const gpuUtil = metrics?.gpu.utilization ?? 28;
@@ -83,58 +105,15 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 w-full">
-      {/* Top Banner: Title & Primary KPI Dials */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-slate-900">
-              Host Workstation Analytics
-            </h1>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
-              OFFICE PC
-            </span>
-          </div>
-        </div>
-
-        {/* 3 Key Stats matching the screenshot layout */}
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-6 bg-white/80 backdrop-blur-sm p-3 sm:p-3.5 rounded-2xl border border-slate-200/80 shadow-sm w-full md:w-auto">
-          <div className="text-center sm:text-left">
-            <div className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider truncate">
-              GPU Load
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2 mt-0.5">
-              <span className="text-lg sm:text-2xl font-black text-slate-900">{gpuUtil}%</span>
-              <span className="text-[9px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 w-fit mx-auto sm:mx-0">
-                {gpuTemp}°C
-              </span>
-            </div>
-          </div>
-
-          <div className="border-l border-slate-200 pl-2 sm:pl-6 text-center sm:text-left">
-            <div className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider truncate">
-              VRAM Free
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2 mt-0.5">
-              <span className="text-lg sm:text-2xl font-black text-slate-900">{gpuMemFreeGB} GB</span>
-              <span className="text-[9px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 w-fit mx-auto sm:mx-0">
-                12 GB
-              </span>
-            </div>
-          </div>
-
-          <div className="border-l border-slate-200 pl-2 sm:pl-6 text-center sm:text-left">
-            <div className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider truncate">
-              AI Job Queue
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2 mt-0.5">
-              <span className="text-lg sm:text-2xl font-black text-slate-900">
-                {activeJob ? '1 Active' : 'Idle'}
-              </span>
-              <span className="text-[9px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 w-fit mx-auto sm:mx-0">
-                {queuedCount} Q
-              </span>
-            </div>
-          </div>
+      {/* Top Banner: Title */}
+      <div className="flex items-center justify-between pb-2">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-slate-900">
+            Host Workstation Analytics
+          </h1>
+          <span className="text-[10px] sm:text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
+            OFFICE PC
+          </span>
         </div>
       </div>
 
@@ -179,31 +158,27 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
               </div>
 
               <div className="grid grid-cols-2 gap-2.5 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                <div>
-                  <span className="text-slate-400">Host Device:</span>{' '}
-                  <span className="font-semibold text-slate-700">
-                    {activeJob.deviceName
-                      ? `Host ${activeJob.device || 'cuda'} (${activeJob.deviceName.replace(/^NVIDIA\s+GeForce\s+/i, '').replace(/^NVIDIA\s+/i, '')})`
-                      : metrics?.gpu?.name
-                      ? `Host ${activeJob.device || 'cuda'} (${metrics.gpu.name.replace(/^NVIDIA\s+GeForce\s+/i, '').replace(/^NVIDIA\s+/i, '')})`
-                      : `Host ${activeJob.device || 'cuda'}`}
-                  </span>
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700 shrink-0">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="truncate">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">User</span>
+                    <span className="font-extrabold text-slate-800 text-xs truncate block">
+                      {activeJob.submittedBy ? `By ${activeJob.submittedBy}` : 'By ML Engineer'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-400">Batch Size:</span>{' '}
-                  <span className="font-semibold text-slate-700">{activeJob.batchSize}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Est. Remaining:</span>{' '}
-                  <span className="font-semibold text-slate-700">
-                    {Math.round((activeJob.estimatedRemainingSec || 600) / 60)} mins
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Current Loss:</span>{' '}
-                  <span className="font-semibold text-emerald-600">
-                    {activeJob.metricsHistory.slice(-1)[0]?.loss.toFixed(3) || '0.110'}
-                  </span>
+                <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+                  <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700 shrink-0">
+                    <Clock className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="truncate">
+                    <span className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Time Running</span>
+                    <span className="font-extrabold text-emerald-700 text-xs truncate block font-mono">
+                      {getElapsedRunningTime(activeJob.startedAt, activeJob.submittedAt)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -211,9 +186,6 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
             <div className="my-8 text-center py-6">
               <Cpu className="w-12 h-12 text-slate-300 mx-auto mb-2.5" />
               <p className="text-sm font-bold text-slate-800">No Job Running on GPU</p>
-              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                Configure and submit training jobs from available model templates to train directly on the office workstation GPU.
-              </p>
             </div>
           )}
 
@@ -238,9 +210,6 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
               <p className="text-xs text-slate-400 mt-0.5">Real-time workstation memory and compute utilization</p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
-                HEALTHY
-              </span>
               <button
                 onClick={fetchTelemetry}
                 className="p-1 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
@@ -416,9 +385,6 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
               <span className="font-bold text-sm text-slate-900">Model Training Studio</span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">COMPUTE READY</span>
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Submit and monitor machine learning and deep learning training pipelines directly on the workstation GPU with real-time telemetry.
-            </p>
             <div className="mt-4 p-3 bg-slate-50 rounded-2xl text-xs space-y-1">
               <div className="flex justify-between">
                 <span className="text-slate-500">Active / Queued:</span>
@@ -448,11 +414,8 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
           <div>
             <div className="flex items-center justify-between mb-3">
               <span className="font-bold text-sm text-slate-900">Inventory & Guidance</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">LAB ASSETS</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">OFFICE ASSETS</span>
             </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Track office camera sensors, edge AI dev kits, and review internal engineering SOPs and guidance slides.
-            </p>
             {user && (
               <div className="mt-4 flex gap-2">
                 <button
@@ -473,11 +436,6 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
                 </button>
               </div>
             )}
-          </div>
-          <div className="pt-4 border-t border-slate-100 text-center">
-            <span className="text-[11px] text-slate-400">
-              Internal Office Central Workstation Portal
-            </span>
           </div>
         </div>
       </div>

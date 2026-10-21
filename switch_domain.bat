@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
-title IRnow Hub - Domain Switcher
+title IRnow Workspace - Domain Switcher
 
 echo =====================================================================
-echo                IRNOW HUB - DOMAIN CONFIGURATION TOOL
+echo                IRnow Workspace - DOMAIN CONFIGURATION TOOL
 echo =====================================================================
 echo.
 
@@ -80,7 +80,7 @@ echo       From Email: %NEW_EMAIL%
 
 :: Write to .env
 (
-    echo # IRnow Hub Environment Configuration
+    echo # IRnow Workspace Environment Configuration
     echo # Auto-configured via switch_domain.bat on %DATE% %TIME%
     echo RESEND_API_KEY=%EXISTING_KEY%
     echo RESEND_FROM_EMAIL=%NEW_EMAIL%

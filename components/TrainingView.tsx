@@ -774,9 +774,6 @@ dataset = version.download("coco")`
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
             Model Training Studio
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Train vision, segmentation, and tabular models directly on the office workstation GPU
-          </p>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
@@ -1121,7 +1118,6 @@ dataset = version.download("coco")`
                     {/* Footer Controls & Stats */}
                       <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-3 text-slate-500">
-                          <span>Host Device: <strong className="text-slate-700">{job.deviceName ? `Host ${job.device} (${job.deviceName.replace(/^NVIDIA\s+GeForce\s+/i, '').replace(/^NVIDIA\s+/i, '')})` : `Host ${job.device}`}</strong></span>
                           <span>LR: <strong className="text-slate-700">{job.learningRate}</strong></span>
                           <span>By: <strong className="text-slate-700">{job.submittedBy}</strong></span>
                         </div>
@@ -1286,80 +1282,18 @@ dataset = version.download("coco")`
                   </div>
                 </div>
 
-                {/* Metric Curve Chart */}
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-slate-700">Loss & Convergence Curve</span>
-                    <div className="flex items-center gap-3 text-[10px]">
-                      <span className="flex items-center gap-1 text-blue-600 font-bold">
-                        <span className="w-2 h-0.5 bg-blue-600"></span> Loss (CE/Mask)
-                      </span>
-                      <span className="flex items-center gap-1 text-emerald-600 font-bold">
-                        <span className="w-2 h-0.5 bg-emerald-500"></span> mAP / Metric
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* SVG Chart */}
-                  <div className="h-36 w-full relative">
-                    {selectedJob.metricsHistory && selectedJob.metricsHistory.length > 1 ? (
-                      <svg className="w-full h-full overflow-visible" viewBox="0 0 300 120">
-                        <line x1="0" y1="20" x2="300" y2="20" stroke="#E2E8F0" strokeDasharray="3 3" />
-                        <line x1="0" y1="60" x2="300" y2="60" stroke="#E2E8F0" strokeDasharray="3 3" />
-                        <line x1="0" y1="100" x2="300" y2="100" stroke="#E2E8F0" strokeDasharray="3 3" />
-
-                        {/* Loss Line */}
-                        <path
-                          d={selectedJob.metricsHistory
-                            .map((pt, i) => {
-                              const x = (i / (selectedJob.metricsHistory.length - 1)) * 280 + 10;
-                              const y = Math.max(10, Math.min(110, 110 - pt.loss * 85));
-                              return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                            })
-                            .join(' ')}
-                          fill="none"
-                          stroke="#2563EB"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                        />
-
-                        {/* Accuracy Line */}
-                        <path
-                          d={selectedJob.metricsHistory
-                            .map((pt, i) => {
-                              const x = (i / (selectedJob.metricsHistory.length - 1)) * 280 + 10;
-                              const acc = pt.accuracy || 0.6;
-                              const y = Math.max(10, Math.min(110, 110 - acc * 100));
-                              return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                            })
-                            .join(' ')}
-                          fill="none"
-                          stroke="#10B981"
-                          strokeWidth="2"
-                          strokeDasharray="4 2"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                        Gathering epoch loss telemetry...
-                      </div>
-                    )}
-                  </div>
-                </div>
-
                 {/* Terminal Console Logs */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                       <Terminal className="w-3.5 h-3.5 text-slate-500" />
-                      Stdout Console Stream
+                      Terminal Console Stream
                     </span>
                     <span className="text-[10px] text-slate-400">
                       {selectedJob.logs?.length || 0} lines captured
                     </span>
                   </div>
-                  <div className="bg-[#0F172A] rounded-2xl p-3 text-[11px] font-mono text-emerald-400 h-52 overflow-y-auto space-y-1 shadow-inner">
+                  <div className="bg-white rounded-2xl p-3 text-[11px] font-mono text-black-400 h-52 overflow-y-auto space-y-1 shadow-inner">
                     {selectedJob.logs && selectedJob.logs.map((line, idx) => (
                       <div key={idx} className="leading-relaxed whitespace-pre-wrap">
                         {line}
@@ -1372,7 +1306,7 @@ dataset = version.download("coco")`
               <div className="bg-white rounded-3xl p-8 text-center border border-slate-100 shadow-sm text-slate-400">
                 <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                 <p className="font-semibold text-sm text-slate-600">Select a Job from Queue</p>
-                <p className="text-xs mt-1">Click on any job to view live loss charts, hyperparams, and stdout.</p>
+                <p className="text-xs mt-1">Click on any job to view live terminal.</p>
               </div>
             )}
           </div>
@@ -2938,14 +2872,10 @@ dataset = version.download("coco")`
                         </p>
 
                         <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-slate-600 font-semibold">
-                              mIoU: <strong className="text-blue-700">{finalMiou}%</strong>
-                            </span>
-                            <span className="text-[11px] text-slate-600 font-semibold">
-                              mAP50: <strong className="text-emerald-700">{finalAcc}%</strong>
-                            </span>
-                          </div>
+                          <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Completed
+                          </span>
                           <span className="text-[10px] text-slate-400 font-medium">
                             {j.totalEpochs} Epochs
                           </span>
@@ -2981,14 +2911,7 @@ dataset = version.download("coco")`
                 const current = selectedResultJob || completedRuns[0];
                 if (!current) return null;
 
-                const miouPercent = ((current.mIoU || 0.904) * 100).toFixed(1);
-                const map50Percent = ((current.mAP50 || 0.949) * 100).toFixed(1);
-                const map50_95Percent = ((current.mAP50_95 || 0.835) * 100).toFixed(1);
-                const dicePercent = ((current.diceScore || 0.950) * 100).toFixed(1);
-                const bestLossVal = current.bestLoss ? current.bestLoss.toFixed(4) : '0.0894';
-
                 const valCompUrl = current.valComparisonUrl || `/uploads/runs/${current.id}/val_comparison.png`;
-                const zipBundleUrl = current.resultZipUrl || `/uploads/runs/${current.id}/result_bundle.zip`;
                 const weightsUrl = current.checkpointPath || `/uploads/runs/${current.id}/weights/best_rfdetr_weights.pt`;
 
                 const isCurrentOwner = user && (
@@ -3013,13 +2936,13 @@ dataset = version.download("coco")`
                         </div>
                         <h3 className="text-2xl font-black text-slate-900">{current.name}</h3>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Architecture: RF-DETR (Native HGNetv2/ResNet50 Hybrid) • Dataset: {current.datasetName || 'Industrial Dataset'}
+                          Dataset: {current.datasetName || 'Industrial Dataset'}
                         </p>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2.5">
                         <a
-                          href={zipBundleUrl}
+                          href={`/api/jobs/${current.id}/download`}
                           download={`result_bundle_${current.id}.zip`}
                           className="px-4 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5"
                         >
@@ -3048,49 +2971,6 @@ dataset = version.download("coco")`
                       </div>
                     </div>
 
-                    {/* KPI Metric Blocks */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                          Mean IoU (mIoU)
-                        </span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-2xl font-black text-blue-600">{miouPercent}%</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">Pixel mask overlap</span>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                          mAP @ 0.50
-                        </span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-2xl font-black text-slate-900">{map50Percent}%</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">Detection confidence</span>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                          Dice Score
-                        </span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-2xl font-black text-slate-900">{dicePercent}%</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">F1 harmonic mean</span>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                          Best Final Loss
-                        </span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-2xl font-black text-emerald-600">{bestLossVal}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">CE + Mask + Dice</span>
-                      </div>
-                    </div>
-
                     {/* Visual Validation Comparison (Input GT vs Prediction Mask) */}
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
                       <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -3098,13 +2978,7 @@ dataset = version.download("coco")`
                           <h4 className="text-base font-extrabold text-slate-900">
                             Validation Ground Truth vs. RF-DETR Prediction Mask
                           </h4>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Direct visual inference comparison from held-out validation set
-                          </p>
                         </div>
-                        <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                          IoU {miouPercent}% Match
-                        </span>
                       </div>
 
                       <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex flex-col items-center justify-center p-3">
@@ -3149,63 +3023,58 @@ dataset = version.download("coco")`
                       </div>
                     </div>
 
-                    {/* Interactive Convergence Curves (Loss & Accuracy vs Epoch) */}
+                    {/* Training Results Curves (results.png from metrics.csv) */}
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-100 gap-2">
                         <div>
                           <h4 className="text-base font-extrabold text-slate-900">
-                            Convergence Curves Across Epochs
+                            Training Results & Metrics Curves
                           </h4>
                           <p className="text-xs text-slate-400 mt-0.5">
-                            Historical training loss decay and segmentation accuracy progression
+                            Real loss convergence, validation mAP@50, mAP@50:95, and precision/recall curves from metrics.csv
                           </p>
                         </div>
-                        <div className="flex items-center gap-4 text-xs font-semibold">
-                          <span className="flex items-center gap-1.5 text-blue-600">
-                            <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Training Loss
-                          </span>
-                          <span className="flex items-center gap-1.5 text-emerald-600">
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span> Validation Loss
-                          </span>
-                        </div>
+                        <a
+                          href={`/uploads/runs/${current.id}/results.png`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download={`results_${current.id}.png`}
+                          className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1.5 w-fit"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download Graph</span>
+                        </a>
                       </div>
 
-                      {/* SVG Curves */}
-                      <div className="relative h-48 w-full pt-4">
-                        <svg className="w-full h-full overflow-visible" viewBox="0 0 500 120">
-                          {/* Grid lines */}
-                          <line x1="0" y1="110" x2="500" y2="110" stroke="#E2E8F0" strokeWidth="1" />
-                          <line x1="0" y1="60" x2="500" y2="60" stroke="#F1F5F9" strokeWidth="1" strokeDasharray="3 3" />
-                          <line x1="0" y1="10" x2="500" y2="10" stroke="#F1F5F9" strokeWidth="1" strokeDasharray="3 3" />
-
-                          {/* Training Loss Curve */}
-                          <path
-                            d="M 10 15 Q 60 40 120 70 T 250 95 T 380 102 T 490 106"
-                            fill="none"
-                            stroke="#2563EB"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                          />
-
-                          {/* Validation Loss Curve */}
-                          <path
-                            d="M 10 22 Q 60 48 120 75 T 250 98 T 380 105 T 490 108"
-                            fill="none"
-                            stroke="#10B981"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeDasharray="4 2"
-                          />
-
-                          {/* End markers */}
-                          <circle cx="490" cy="106" r="4" fill="#2563EB" stroke="#FFFFFF" strokeWidth="2" />
-                          <circle cx="490" cy="108" r="4" fill="#10B981" stroke="#FFFFFF" strokeWidth="2" />
-                        </svg>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-semibold pt-2">
-                          <span>Epoch 1 (Loss: 2.80)</span>
-                          <span>Epoch {Math.round(current.totalEpochs / 2)}</span>
-                          <span>Epoch {current.totalEpochs} (Loss: {bestLossVal})</span>
+                      <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex flex-col items-center justify-center p-3">
+                        <img
+                          src={`/uploads/runs/${current.id}/results.png`}
+                          alt="Training Results Curves"
+                          className="w-full max-h-[550px] object-contain rounded-xl border border-slate-100"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                            const fallback = document.getElementById(`fallback-results-png-${current.id}`);
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                        />
+                        <div
+                          id={`fallback-results-png-${current.id}`}
+                          className="hidden flex-col items-center justify-center py-12 px-4 text-center space-y-2"
+                        >
+                          <Clock className="w-8 h-8 text-slate-400 animate-spin" />
+                          <p className="text-xs font-bold text-slate-700">Generating results curves graph...</p>
+                          <p className="text-[11px] text-slate-400">results.png is processing. Refresh in a moment if still finalizing.</p>
+                        </div>
+                        <div className="py-2 text-center text-xs text-slate-600 flex items-center justify-between border-t border-slate-100 w-full mt-3 px-2">
+                          <span className="text-[11px] text-slate-500 font-medium">Source: metrics.csv</span>
+                          <a
+                            href={`/uploads/runs/${current.id}/results.png`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline text-xs font-bold flex items-center gap-1"
+                          >
+                            Open Full Resolution Graph ↗
+                          </a>
                         </div>
                       </div>
                     </div>
@@ -3990,8 +3859,10 @@ dataset = version.download("coco")`
                             Dataset: <strong className="text-slate-700">{j.datasetName}</strong> • By: <strong className="text-slate-700">{j.submittedBy}</strong> • Completed: <strong className="text-slate-700">{j.completedAt ? new Date(j.completedAt).toLocaleDateString() : 'Recent'}</strong>
                           </p>
                           <div className="flex items-center gap-4 text-xs mt-2">
-                            <span className="text-slate-600 font-semibold">mIoU: <strong className="text-blue-700">{finalMiou}%</strong></span>
-                            <span className="text-slate-600 font-semibold">mAP50: <strong className="text-emerald-700">{finalAcc}%</strong></span>
+                            <span className="text-emerald-600 font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Training Finished
+                            </span>
                             <span className="text-slate-400 font-medium">{j.totalEpochs} Epochs</span>
                           </div>
                         </div>

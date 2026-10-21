@@ -264,7 +264,7 @@ export function Navbar({
               />
               <div className="flex items-center gap-2">
                 <span className="text-base sm:text-xl font-bold tracking-tight text-slate-900 whitespace-nowrap">
-                  IRnow Hub
+                  IRnow Workspace
                 </span>
               </div>
             </div>
@@ -662,9 +662,9 @@ export function Navbar({
           {/* Sidebar Top Header */}
           <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5">
-              <img src="/logo.png" alt="IRnow Hub" className="w-7 h-7 object-contain rounded-lg" />
+              <img src="/logo.png" alt="IRnow Workspace" className="w-7 h-7 object-contain rounded-lg" />
               <div>
-                <h2 className="text-sm font-extrabold text-slate-900 leading-tight">IRnow Hub</h2>
+                <h2 className="text-sm font-extrabold text-slate-900 leading-tight">IRnow Workspace</h2>
                 <p className="text-[10px] text-slate-400 font-medium">Workstation Portal</p>
               </div>
             </div>

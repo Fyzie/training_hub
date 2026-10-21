@@ -37,7 +37,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 app = FastAPI(
-    title="IRnow Hub Backend API",
+    title="IRnow Workspace Backend API",
     description="Python FastAPI backend for AI model training, hardware inventory, and guidance documentation",
     version="1.0.0"
 )
@@ -1358,6 +1358,6 @@ async def update_profile(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting IRnow Hub Python FastAPI server on 0.0.0.0:8000...")
+    print("Starting IRnow Workspace Python FastAPI server on 0.0.0.0:8000...")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
