@@ -174,6 +174,16 @@ export const dataStore = {
     dataStore.saveDatasets(datasets);
     return true;
   },
+  updateDataset: (id: string, updated: Partial<Dataset>) => {
+    const datasets = dataStore.getDatasets();
+    const idx = datasets.findIndex((d) => d.id === id);
+    if (idx !== -1) {
+      datasets[idx] = { ...datasets[idx], ...updated };
+      dataStore.saveDatasets(datasets);
+      return datasets[idx];
+    }
+    return null;
+  },
 
   // Jobs
   getJobs: (): TrainingJob[] => readJsonFile<TrainingJob[]>('jobs.json', []),

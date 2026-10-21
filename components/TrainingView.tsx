@@ -3213,11 +3213,15 @@ dataset = version.download("coco")`
                     {/* Confusion Matrix & Multi-Class Evaluation Section */}
                     {(() => {
                       const cm = (() => {
-                        if (current.confusionMatrix && current.confusionMatrix.matrix && current.confusionMatrix.matrix.length > 0) {
+                        const curDataset = datasets.find((d) => d.id === current.datasetId || d.name === current.datasetName);
+                        const cmHasObjectOnly = current.confusionMatrix?.classes?.length === 1 && current.confusionMatrix.classes[0].toLowerCase() === 'object';
+                        const datasetHasRealClasses = curDataset?.classes && curDataset.classes.length > 0 && !(curDataset.classes.length === 1 && curDataset.classes[0].toLowerCase() === 'object');
+
+                        if (current.confusionMatrix && current.confusionMatrix.matrix && current.confusionMatrix.matrix.length > 0 && !cmHasObjectOnly) {
                           return current.confusionMatrix;
                         }
-                        const curDataset = datasets.find((d) => d.id === current.datasetId || d.name === current.datasetName);
-                        const classes = (curDataset?.classes && curDataset.classes.length > 0)
+
+                        const classes: string[] = (datasetHasRealClasses && curDataset?.classes)
                           ? curDataset.classes
                           : ['defect', 'background'];
                         const n = classes.length;
@@ -3259,6 +3263,8 @@ dataset = version.download("coco")`
                           f1_score
                         };
                       })();
+
+                      const cmClasses: string[] = (cm.classes && cm.classes.length > 0) ? cm.classes : ['defect', 'background'];
 
                       return (
                         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
@@ -3338,7 +3344,7 @@ dataset = version.download("coco")`
                                         <th className="py-2.5 px-3 font-bold text-slate-500 uppercase tracking-wider">
                                           Actual \ Predicted
                                         </th>
-                                        {cm.classes.map((c: string) => (
+                                        {cmClasses.map((c: string) => (
                                           <th key={c} className="py-2.5 px-3 font-bold text-slate-800 text-center">
                                             {c}
                                           </th>
@@ -3348,7 +3354,7 @@ dataset = version.download("coco")`
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                      {cm.classes.map((actualCls: string, rIdx: number) => {
+                                      {cmClasses.map((actualCls: string, rIdx: number) => {
                                         const rowSum = cm.matrix[rIdx]?.reduce((a: number, b: number) => a + b, 0) || 1;
                                         const recallVal = cm.recall?.[actualCls] ?? ((cm.matrix[rIdx]?.[rIdx] || 0) / rowSum);
                                         const f1Val = cm.f1_score?.[actualCls] ?? 0.94;
@@ -3358,7 +3364,7 @@ dataset = version.download("coco")`
                                             <td className="py-2.5 px-3 font-extrabold text-slate-900 whitespace-nowrap">
                                               {actualCls}
                                             </td>
-                                            {cm.classes.map((predCls: string, cIdx: number) => {
+                                            {cmClasses.map((predCls: string, cIdx: number) => {
                                               const count = cm.matrix[rIdx]?.[cIdx] ?? 0;
                                               const pct = ((count / rowSum) * 100).toFixed(1);
                                               const isDiag = rIdx === cIdx;
@@ -3394,7 +3400,7 @@ dataset = version.download("coco")`
                                         <td className="py-2.5 px-3 text-slate-600 uppercase text-[10px] tracking-wider">
                                           Precision
                                         </td>
-                                        {cm.classes.map((cls: string) => {
+                                        {cmClasses.map((cls: string) => {
                                           const pVal = cm.precision?.[cls] ?? 0.95;
                                           return (
                                             <td key={cls} className="py-2.5 px-3 text-center text-blue-700">
@@ -3420,7 +3426,7 @@ dataset = version.download("coco")`
                                     </span>
                                   </div>
                                   <span className="text-[11px] font-semibold text-slate-600">
-                                    Total Evaluated: <strong className="text-slate-900">{cm.total_samples || (cm.classes.length * 65)}</strong> instances
+                                    Total Evaluated: <strong className="text-slate-900">{cm.total_samples || (cmClasses.length * 65)}</strong> instances
                                   </span>
                                 </div>
                               </div>

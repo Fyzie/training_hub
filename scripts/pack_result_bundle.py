@@ -58,14 +58,45 @@ def generate_result_bundle(
     if not backbone or "yolo" in str(backbone).lower():
         backbone = f"RF-DETR {'ResNet-50' if is_bbox else 'Swin-Small'}"
 
-    # Resolve Dataset Classes comprehensively
-    dataset_classes = [str(c).strip() for c in (classes or hyperparameters.get("classes") or []) if str(c).strip()]
-    if not dataset_classes and dataset_dir:
+    # Normalize and extract dataset_dir if needed
+    if not dataset_dir or not os.path.exists(dataset_dir):
+        if dataset_dir and dataset_dir.startswith("/uploads/"):
+            cand = STORAGE_HUB_DIR / dataset_dir.lstrip("/\\")
+            if cand.exists():
+                dataset_dir = str(cand)
+        if not dataset_dir or not os.path.exists(dataset_dir):
+            datasets_dir = STORAGE_HUB_DIR / "uploads" / "datasets"
+            if datasets_dir.exists():
+                subdirs = [d for d in datasets_dir.iterdir() if d.is_dir()]
+                if subdirs:
+                    dataset_dir = str(subdirs[0])
+
+    if dataset_dir and os.path.isfile(dataset_dir) and (dataset_dir.endswith('.zip') or zipfile.is_zipfile(dataset_dir)):
+        extract_to = str(Path(dataset_dir).with_suffix('')) + "_extracted"
+        if not os.path.exists(extract_to) or not any(os.scandir(extract_to)):
+            os.makedirs(extract_to, exist_ok=True)
+            try:
+                with zipfile.ZipFile(dataset_dir, 'r') as zf:
+                    zf.extractall(extract_to)
+            except Exception:
+                pass
+        if os.path.exists(extract_to):
+            dataset_dir = extract_to
+
+    # Resolve Dataset Classes comprehensively (strictly reject placeholder ['object'])
+    passed_classes = [str(c).strip() for c in (classes or hyperparameters.get("classes") or []) if str(c).strip()]
+    if passed_classes and not (len(passed_classes) == 1 and passed_classes[0].lower() == "object"):
+        dataset_classes = passed_classes
+    else:
+        dataset_classes = []
+
+    if not dataset_classes and dataset_dir and os.path.exists(dataset_dir):
+        # 1. Search COCO files directly & recursively
         cand_files = ["_annotations.coco.json", "annotation.json", "annotations.json", "instances_val.json", "instances_train.json"]
         for cand_sub in ["valid", "val", "train", "annotations", ""]:
             for cf in cand_files:
                 ann_cand = Path(dataset_dir) / cand_sub / cf if cand_sub else Path(dataset_dir) / cf
-                if ann_cand.exists():
+                if ann_cand.exists() and ann_cand.is_file():
                     try:
                         with open(ann_cand, "r", encoding="utf-8") as af:
                             ann_d = json.load(af)
@@ -78,7 +109,44 @@ def generate_result_bundle(
             if dataset_classes:
                 break
 
-        # Check data.yaml (YOLO format)
+        # Recursive search for any COCO annotation JSON
+        if not dataset_classes:
+            for root, _, files in os.walk(dataset_dir):
+                for f in files:
+                    if f.lower() in ["_annotations.coco.json", "annotation.json", "annotations.json"] or f.lower().endswith(".coco.json"):
+                        try:
+                            with open(os.path.join(root, f), "r", encoding="utf-8") as af:
+                                ann_d = json.load(af)
+                                cats = ann_d.get("categories", [])
+                                dataset_classes = [c.get("name") for c in cats if c.get("name")]
+                                if dataset_classes:
+                                    break
+                        except Exception:
+                            pass
+                if dataset_classes:
+                    break
+
+        # 2. Check Image Classification subdirectories (including nested folders)
+        if not dataset_classes:
+            candidate_clf_dirs = [Path(dataset_dir)]
+            try:
+                for entry in Path(dataset_dir).iterdir():
+                    if entry.is_dir() and not entry.name.startswith("."):
+                        candidate_clf_dirs.append(entry)
+            except Exception:
+                pass
+            for base_d in candidate_clf_dirs:
+                for cand_sub in ["train", "valid", "val", "Train", "Valid"]:
+                    sdir = base_d / cand_sub
+                    if sdir.exists() and sdir.is_dir():
+                        sub_dirs = [d.name for d in sdir.iterdir() if d.is_dir() and not d.name.startswith(".")]
+                        if sub_dirs:
+                            dataset_classes = sorted(sub_dirs)
+                            break
+                if dataset_classes:
+                    break
+
+        # 3. Check data.yaml (YOLO format)
         if not dataset_classes:
             yaml_cand = Path(dataset_dir) / "data.yaml"
             if yaml_cand.exists():
@@ -91,16 +159,6 @@ def generate_result_bundle(
                                     dataset_classes = [x.strip(" '\"") for x in rest[1:-1].split(",") if x.strip(" '\"")]
                 except Exception:
                     pass
-
-        # Check image classification subdirectories
-        if not dataset_classes:
-            for cand_sub in ["train", "valid", "val"]:
-                sdir = Path(dataset_dir) / cand_sub
-                if sdir.exists() and sdir.is_dir():
-                    sub_dirs = [d.name for d in sdir.iterdir() if d.is_dir() and not d.name.startswith(".")]
-                    if sub_dirs:
-                        dataset_classes = sorted(sub_dirs)
-                        break
 
     if not dataset_classes:
         dataset_classes = ["defect", "background"]
@@ -282,30 +340,6 @@ created_at: "{datetime.utcnow().isoformat()}"
             legacy_collage.unlink()
         except Exception:
             pass
-
-    if not dataset_dir or not os.path.exists(dataset_dir):
-        if dataset_dir and dataset_dir.startswith("/uploads/"):
-            cand = STORAGE_HUB_DIR / dataset_dir.lstrip("/\\")
-            if cand.exists():
-                dataset_dir = str(cand)
-        if not dataset_dir or not os.path.exists(dataset_dir):
-            datasets_dir = STORAGE_HUB_DIR / "uploads" / "datasets"
-            if datasets_dir.exists():
-                subdirs = [d for d in datasets_dir.iterdir() if d.is_dir()]
-                if subdirs:
-                    dataset_dir = str(subdirs[0])
-
-    if dataset_dir and os.path.isfile(dataset_dir) and (dataset_dir.endswith('.zip') or zipfile.is_zipfile(dataset_dir)):
-        extract_to = str(Path(dataset_dir).with_suffix('')) + "_extracted"
-        if not os.path.exists(extract_to) or not any(os.scandir(extract_to)):
-            os.makedirs(extract_to, exist_ok=True)
-            try:
-                with zipfile.ZipFile(dataset_dir, 'r') as zf:
-                    zf.extractall(extract_to)
-            except Exception:
-                pass
-        if os.path.exists(extract_to):
-            dataset_dir = extract_to
 
     try:
         if is_bbox:

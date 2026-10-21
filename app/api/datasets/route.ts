@@ -4,7 +4,7 @@ import { Dataset } from '@/lib/types';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import { UPLOADS_DIR, ensureStorageHub } from '@/lib/storage';
+import { UPLOADS_DIR, ensureStorageHub, scanDatasetClasses } from '@/lib/storage';
 import { getHostPythonExe } from '@/lib/python-runtime';
 
 const UPLOAD_DIR = path.join(UPLOADS_DIR, 'datasets');
@@ -127,6 +127,10 @@ export async function POST(request: Request) {
         fileSizeMB = Math.round((file.size / (1024 * 1024)) * 10) / 10;
       }
 
+      // Automatically scan uploaded archive or directory for real class names
+      const detectedClasses = filePath ? scanDatasetClasses(filePath) : [];
+      const finalClasses = (detectedClasses && detectedClasses.length > 0) ? detectedClasses : ['defect', 'background'];
+
       const newDataset: Dataset = {
         id: `ds-${Date.now().toString(36)}`,
         name: name || 'Custom Dataset',
@@ -139,7 +143,7 @@ export async function POST(request: Request) {
         uploadedBy,
         uploadedAt: new Date().toISOString(),
         filePath,
-        classes: ['object'],
+        classes: finalClasses,
         splits: { train: 800, val: 200 }
       };
 
@@ -175,6 +179,11 @@ export async function POST(request: Request) {
         }
       }
 
+      const jsonDetectedClasses = body.filePath ? scanDatasetClasses(body.filePath) : [];
+      const jsonClasses = (body.classes && Array.isArray(body.classes) && body.classes.length > 0 && !(body.classes.length === 1 && body.classes[0] === 'object'))
+        ? body.classes
+        : ((jsonDetectedClasses && jsonDetectedClasses.length > 0) ? jsonDetectedClasses : ['defect', 'background']);
+
       const newDataset: Dataset = {
         id: `ds-${Date.now().toString(36)}`,
         name: body.name || 'New Dataset',
@@ -186,7 +195,8 @@ export async function POST(request: Request) {
         sampleCount: body.sampleCount || 1000,
         uploadedBy: body.uploadedBy || 'ML Engineer',
         uploadedAt: new Date().toISOString(),
-        classes: body.classes || ['object'],
+        filePath: body.filePath || '',
+        classes: jsonClasses,
         splits: body.splits || { train: 800, val: 200 }
       };
 

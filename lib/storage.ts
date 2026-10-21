@@ -199,6 +199,110 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
 }
 
 /**
+ * Scans a dataset directory or zip archive to extract actual class names.
+ * - For Instance Segmentation & Object Detection: reads _annotations.coco.json or any COCO JSON.
+ * - For Image Classification: reads subfolder names in train/ or valid/ (including nested containers).
+ */
+export function scanDatasetClasses(rawPath: string): string[] {
+  try {
+    const resolved = resolveHostDatasetDir(rawPath);
+    if (!resolved || !fs.existsSync(resolved)) return [];
+
+    let targetDir = resolved;
+    if (fs.statSync(targetDir).isFile()) {
+      const extracted = targetDir.replace(/\.zip$/i, '');
+      if (fs.existsSync(extracted) && fs.statSync(extracted).isDirectory()) {
+        targetDir = extracted;
+      }
+    }
+
+    if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) return [];
+
+    // Search containers (root and first-level subdirectories for nested unzips)
+    const searchDirs = [targetDir];
+    try {
+      const entries = fs.readdirSync(targetDir);
+      for (const e of entries) {
+        const sub = path.join(targetDir, e);
+        if (fs.existsSync(sub) && fs.statSync(sub).isDirectory() && !e.startsWith('.')) {
+          searchDirs.push(sub);
+        }
+      }
+    } catch {}
+
+    // 1. Check COCO JSON files
+    const candNames = ['_annotations.coco.json', 'annotation.json', 'annotations.json', 'instances_train.json', 'instances_val.json'];
+    for (const base of searchDirs) {
+      for (const split of ['valid', 'val', 'train', 'annotations', '']) {
+        const checkDir = split ? path.join(base, split) : base;
+        for (const cf of candNames) {
+          const annPath = path.join(checkDir, cf);
+          if (fs.existsSync(annPath) && fs.statSync(annPath).isFile()) {
+            try {
+              const data = JSON.parse(fs.readFileSync(annPath, 'utf-8'));
+              if (Array.isArray(data.categories)) {
+                const names = data.categories.map((c: any) => c.name).filter(Boolean).map((n: any) => String(n).trim());
+                if (names.length > 0) return names;
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // Recursive search for any *.coco.json if not found in immediate candidates
+    const recursiveFindCoco = (dir: string, depth = 0): string[] => {
+      if (depth > 3) return [];
+      try {
+        const list = fs.readdirSync(dir);
+        for (const item of list) {
+          const full = path.join(dir, item);
+          const stat = fs.statSync(full);
+          if (stat.isFile() && (item.endsWith('.coco.json') || item.includes('annotation') || item === '_annotations.coco.json')) {
+            try {
+              const data = JSON.parse(fs.readFileSync(full, 'utf-8'));
+              if (Array.isArray(data.categories)) {
+                const names = data.categories.map((c: any) => c.name).filter(Boolean).map((n: any) => String(n).trim());
+                if (names.length > 0) return names;
+              }
+            } catch {}
+          } else if (stat.isDirectory() && !item.startsWith('.')) {
+            const res = recursiveFindCoco(full, depth + 1);
+            if (res.length > 0) return res;
+          }
+        }
+      } catch {}
+      return [];
+    };
+    const cocoRecursive = recursiveFindCoco(targetDir);
+    if (cocoRecursive.length > 0) return cocoRecursive;
+
+    // 2. Check Classification subfolders (train/, valid/, val/)
+    for (const base of searchDirs) {
+      for (const split of ['train', 'valid', 'val', 'Train', 'Valid']) {
+        const splitDir = path.join(base, split);
+        if (fs.existsSync(splitDir) && fs.statSync(splitDir).isDirectory()) {
+          try {
+            const subEntries = fs.readdirSync(splitDir);
+            const classes: string[] = [];
+            for (const sub of subEntries) {
+              const classDir = path.join(splitDir, sub);
+              if (fs.existsSync(classDir) && fs.statSync(classDir).isDirectory() && !sub.startsWith('.')) {
+                classes.push(sub.trim());
+              }
+            }
+            if (classes.length > 0) return classes.sort();
+          } catch {}
+        }
+      }
+    }
+  } catch (err) {
+    console.error('scanDatasetClasses error:', err);
+  }
+  return [];
+}
+
+/**
  * Unzips a dataset archive asynchronously using the host's Python zipfile utility.
  * Extremely fast, non-blocking, and avoids PowerShell console popups.
  */

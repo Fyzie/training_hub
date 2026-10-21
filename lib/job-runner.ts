@@ -3,7 +3,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { dataStore } from './data-store';
 import { TrainingJob, TrainingMetricPoint } from './types';
-import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir, unzipDatasetArchiveAsync } from './storage';
+import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir, unzipDatasetArchiveAsync, scanDatasetClasses } from './storage';
 import { getHostPythonExe } from './python-runtime';
 import { sendEmail } from './email';
 
@@ -159,26 +159,22 @@ class JobScheduler {
           const dataset = datasets.find((d) => d.id === job.datasetId || d.name === job.datasetName);
           const datasetDir = resolveHostDatasetDir(dataset?.filePath, dataset?.name || job.datasetName);
 
-          // Resolve classes comprehensively
-          let classes = dataset?.classes || [];
-          if ((!classes || classes.length === 0) && datasetDir && fs.existsSync(datasetDir)) {
-            const candFiles = ['_annotations.coco.json', 'annotation.json', 'annotations.json', 'instances_val.json', 'instances_train.json'];
-            for (const sub of ['valid', 'val', 'train', 'annotations', '']) {
-              for (const cf of candFiles) {
-                const annPath = sub ? path.join(datasetDir, sub, cf) : path.join(datasetDir, cf);
-                if (fs.existsSync(annPath)) {
-                  try {
-                    const annContent = JSON.parse(fs.readFileSync(annPath, 'utf-8'));
-                    if (Array.isArray(annContent.categories)) {
-                      classes = annContent.categories.map((c: any) => c.name).filter(Boolean);
-                      if (classes.length > 0) break;
-                    }
-                  } catch {}
-                }
+          // Resolve classes comprehensively (strictly reject placeholder ['object'])
+          let classes = (dataset?.classes && Array.isArray(dataset.classes) && dataset.classes.length > 0 && !(dataset.classes.length === 1 && dataset.classes[0].toLowerCase() === 'object'))
+            ? dataset.classes
+            : [];
+
+          if (classes.length === 0 && datasetDir) {
+            const detected = scanDatasetClasses(datasetDir);
+            if (detected && detected.length > 0) {
+              classes = detected;
+              if (dataset) {
+                dataset.classes = detected;
+                dataStore.updateDataset(dataset.id, { classes: detected });
               }
-              if (classes.length > 0) break;
             }
           }
+
           if (!classes || classes.length === 0) {
             classes = ['defect', 'background'];
           }

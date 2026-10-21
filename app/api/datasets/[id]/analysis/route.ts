@@ -71,6 +71,16 @@ export async function GET(
       });
 
       if (analysisResult) {
+        // Persist real detected classes, count, and split metadata to dataStore
+        if (Array.isArray(analysisResult.classes) && analysisResult.classes.length > 0 && !(analysisResult.classes.length === 1 && analysisResult.classes[0] === 'object')) {
+          dataStore.updateDataset(dataset.id, {
+            classes: analysisResult.classes,
+            sampleCount: analysisResult.totalSamples || dataset.sampleCount,
+            splits: analysisResult.splits || dataset.splits,
+            format: analysisResult.format === 'Image Classification Directory' ? 'images_folder' : (analysisResult.format === 'COCO Vision Format' ? 'coco' : dataset.format)
+          });
+        }
+
         return NextResponse.json({
           ...analysisResult,
           id: dataset.id,

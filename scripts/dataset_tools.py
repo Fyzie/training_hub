@@ -253,24 +253,37 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
     widths = []
     heights = []
 
-    for split_name in ["train", "valid", "val", "test"]:
-        sdir = os.path.join(real_path, split_name)
-        if os.path.exists(sdir) and os.path.isdir(sdir):
-            norm_split = "train" if "train" in split_name else ("test" if "test" in split_name else "val")
-            for cname in os.listdir(sdir):
-                cdir = os.path.join(sdir, cname)
-                if os.path.isdir(cdir) and not cname.startswith("."):
-                    img_files = [f for f in os.listdir(cdir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
-                    splits[norm_split] += len(img_files)
-                    class_folders[cname] = class_folders.get(cname, 0) + len(img_files)
-                    # Sample up to 10 image dimensions
-                    for sample_f in img_files[:10]:
-                        try:
-                            with Image.open(os.path.join(cdir, sample_f)) as im:
-                                widths.append(im.width)
-                                heights.append(im.height)
-                        except Exception:
-                            pass
+    # Support nested folders (e.g. unzipped archives with top-level container directory)
+    candidate_clf_dirs = [real_path]
+    try:
+        for entry in os.listdir(real_path):
+            sub = os.path.join(real_path, entry)
+            if os.path.isdir(sub) and not entry.startswith('.'):
+                candidate_clf_dirs.append(sub)
+    except Exception:
+        pass
+
+    for base_d in candidate_clf_dirs:
+        for split_name in ["train", "valid", "val", "test"]:
+            sdir = os.path.join(base_d, split_name)
+            if os.path.exists(sdir) and os.path.isdir(sdir):
+                norm_split = "train" if "train" in split_name else ("test" if "test" in split_name else "val")
+                for cname in os.listdir(sdir):
+                    cdir = os.path.join(sdir, cname)
+                    if os.path.isdir(cdir) and not cname.startswith("."):
+                        img_files = [f for f in os.listdir(cdir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
+                        splits[norm_split] += len(img_files)
+                        class_folders[cname] = class_folders.get(cname, 0) + len(img_files)
+                        # Sample up to 10 image dimensions
+                        for sample_f in img_files[:10]:
+                            try:
+                                with Image.open(os.path.join(cdir, sample_f)) as im:
+                                    widths.append(im.width)
+                                    heights.append(im.height)
+                            except Exception:
+                                pass
+        if class_folders:
+            break
 
     if class_folders:
         classes_list = sorted(list(class_folders.keys()))
