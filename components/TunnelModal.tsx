@@ -138,9 +138,6 @@ export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalP
           <h2 className="text-lg sm:text-2xl font-extrabold text-slate-900 leading-tight">
             Local Office Server & Cloudflare Remote Access
           </h2>
-          <p className="text-[11px] sm:text-xs text-slate-500 mt-1">
-            Runs locally on your PC workstation while allowing staff across the office or outside to interact seamlessly
-          </p>
         </div>
 
         {!isTabMode && (
@@ -182,7 +179,7 @@ export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalP
                 </div>
                 <div>
                   <h4 className="font-extrabold text-sm text-slate-900">In-Office Access (LAN)</h4>
-                  <p className="text-[11px] text-slate-500">For colleagues on office Wi-Fi / Ethernet</p>
+                  <p className="text-[11px] text-slate-500">For office Wi-Fi / Ethernet</p>
                 </div>
               </div>
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
@@ -256,70 +253,6 @@ export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalP
               )}
             </div>
 
-            {/* Start / Stop Control Buttons */}
-            <div className="flex items-center gap-2 pt-1">
-              {!networkInfo.isActive ? (
-                <button
-                  onClick={handleStartTunnel}
-                  disabled={isStarting}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
-                >
-                  {isStarting ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Starting Tunnel & Capturing URL...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4 text-amber-300" />
-                      <span>Start Tunnel</span>
-                    </>
-                  )}
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={handleStopTunnel}
-                    disabled={isStopping}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
-                  >
-                    {isStopping ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Stopping...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Power className="w-4 h-4" />
-                        <span>Stop Tunnel</span>
-                      </>
-                    )}
-                  </button>
-
-                  {networkInfo.tunnelType !== 'cloudflare_named' ? (
-                    <button
-                      onClick={handleStartTunnel}
-                      disabled={isStarting || isStopping}
-                      title="Generate New Tunnel Address"
-                      className="px-3 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isStarting ? 'animate-spin' : ''}`} />
-                      <span>New URL</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={fetchNetwork}
-                      title="Refresh status"
-                      className="px-3 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Refresh</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-
             {/* Active URL Display Box */}
             {networkInfo.isActive && networkInfo.tunnelUrl ? (
               <div className="bg-white p-3.5 rounded-2xl border border-emerald-300 shadow-xs space-y-1.5">
@@ -328,7 +261,6 @@ export function TunnelModal({ isOpen, onClose, isTabMode = false }: TunnelModalP
                     <Radio className="w-3 h-3 text-emerald-600 animate-pulse" />
                     Active Cloudflare Public URL
                   </span>
-                  <span className="text-[10px] font-semibold text-slate-400">Auto-Detected</span>
                 </div>
 
                 <div className="flex items-center justify-between gap-2">

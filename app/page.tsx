@@ -34,7 +34,7 @@ function MainApp() {
   }, [isLoading, user, activeTab]);
 
   return (
-    <div className="min-h-screen bg-[#F4F6F9] text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-[#F4F6F9] text-slate-900 flex flex-col w-full overflow-x-clip">
       {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
@@ -52,7 +52,7 @@ function MainApp() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full px-3 sm:px-8 xl:px-12 py-4 sm:py-6 pb-6">
+      <main className="flex-1 w-full px-3 sm:px-6 xl:px-12 py-4 sm:py-6 pb-6">
         {activeTab === 'dashboard' && (
           <DashboardView
             onNavigateTab={(tab) => {
@@ -85,8 +85,8 @@ function MainApp() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-slate-200/60 py-6 mb-0 text-center text-xs text-slate-400 bg-white/40">
-        <div className="w-full px-4 sm:px-8 xl:px-12 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <footer className="mt-auto border-t border-slate-200/60 py-6 mb-0 text-center text-xs text-slate-400 bg-white/40 w-full">
+        <div className="w-full px-3 sm:px-6 xl:px-12 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>© 2026 IRnow Workspace • Internal Office Workstation Portal</p>
           {user && (
             <div className="flex items-center gap-4">

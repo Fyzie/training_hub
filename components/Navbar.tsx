@@ -238,8 +238,8 @@ export function Navbar({
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full bg-[#F4F6F9]/95 backdrop-blur-md py-2.5 sm:py-3.5 px-3 sm:px-8 xl:px-12 border-b border-slate-200/60">
-        <div className="w-full flex items-center justify-between gap-2 sm:gap-4 flex-nowrap">
+      <header className="sticky top-0 z-40 w-full bg-[#F4F6F9]/95 backdrop-blur-md py-2 sm:py-3 px-3 sm:px-5 lg:px-8 xl:px-12 border-b border-slate-200/60">
+        <div className="w-full flex items-center justify-between gap-1.5 sm:gap-3 xl:gap-4 flex-nowrap">
           {/* Left: Mobile Sidebar Hamburger Button & Brand Logo */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 select-none">
             {user && (
@@ -263,7 +263,7 @@ export function Navbar({
                 className="w-7 h-7 sm:w-8 sm:h-8 object-contain rounded-lg group-hover:scale-105 transition-transform"
               />
               <div className="flex items-center gap-2">
-                <span className="text-base sm:text-xl font-bold tracking-tight text-slate-900 whitespace-nowrap">
+                <span className="text-base sm:text-lg xl:text-xl font-bold tracking-tight text-slate-900 whitespace-nowrap">
                   IRnow Workspace
                 </span>
               </div>
@@ -271,7 +271,7 @@ export function Navbar({
           </div>
 
         {/* Center: Sleek Pill Navigation Bar - DESKTOP ONLY */}
-        <nav className="hidden md:flex items-center bg-white/95 rounded-full p-1.5 shadow-sm border border-slate-200/80 shrink-0 flex-nowrap">
+        <nav className="hidden md:flex items-center bg-white/95 rounded-full p-1 sm:p-1.5 shadow-sm border border-slate-200/80 shrink-0 flex-nowrap">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             const Icon = item.icon;
@@ -279,7 +279,7 @@ export function Navbar({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`relative flex items-center gap-2 px-4.5 py-2 rounded-full text-xs font-bold transition-all duration-200 whitespace-nowrap shrink-0 ${
+                className={`relative flex items-center gap-1.5 xl:gap-2 px-3 xl:px-4.5 py-1.5 xl:py-2 rounded-full text-xs font-bold transition-all duration-200 whitespace-nowrap shrink-0 ${
                   isActive
                     ? 'bg-[#111827] text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
@@ -293,16 +293,17 @@ export function Navbar({
         </nav>
 
         {/* Right: Controls & User Pill (Single Line) */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 flex-nowrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 xl:gap-3 shrink-0 flex-nowrap">
           {/* Dedicated Host Gateway Pill Button (Logged in only) */}
           {user && (
             <button
               onClick={onOpenTunnel}
               title={tunnelActive ? "Cloudflare Tunnel Active (Live) • Click to open Gateway" : "Cloudflare Tunnel Stopped • Click to Start"}
-              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-200/80 hover:bg-blue-100 transition-colors shrink-0 shadow-xs whitespace-nowrap cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 xl:px-3.5 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-200/80 hover:bg-blue-100 transition-colors shrink-0 shadow-xs whitespace-nowrap cursor-pointer"
             >
               <Server className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="font-mono text-xs font-semibold hidden sm:inline">{hostIp}</span>
+              <span className="font-mono text-xs font-semibold hidden xl:inline">{hostIp}</span>
+              <span className="font-mono text-[11px] font-semibold hidden sm:inline xl:hidden">LAN</span>
               <span className="font-mono text-[10px] font-bold sm:hidden">IP</span>
               <span
                 className={`w-2 h-2 rounded-full shrink-0 ${
@@ -319,7 +320,7 @@ export function Navbar({
             <div className="relative shrink-0">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white border flex items-center justify-center shadow-sm relative transition-all cursor-pointer ${
+                className={`w-8 h-8 sm:w-8.5 sm:h-8.5 xl:w-9 xl:h-9 rounded-full bg-white border flex items-center justify-center shadow-sm relative transition-all cursor-pointer ${
                   pendingUsers.filter((p) => p.status === 'pending').length > 0
                     ? 'border-amber-300 text-amber-600 hover:bg-amber-50 ring-2 ring-amber-400/20'
                     : 'border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -505,7 +506,7 @@ export function Navbar({
                 }
               }}
               title={user.level === 'Admin' ? 'Team Users & Access Levels' : 'Team Users (Admin Only)'}
-              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border shadow-sm transition-all cursor-pointer shrink-0 ${
+              className={`w-8 h-8 sm:w-8.5 sm:h-8.5 xl:w-9 xl:h-9 rounded-full flex items-center justify-center border shadow-sm transition-all cursor-pointer shrink-0 ${
                 user.level === 'Admin'
                   ? 'bg-white border-slate-200 text-slate-700 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50/50'
                   : 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
@@ -520,25 +521,25 @@ export function Navbar({
             {user ? (
               <button
                 onClick={() => setShowUserDropdown(!showUserDropdown)}
-                className="flex items-center gap-2 p-1 sm:pr-3 rounded-full bg-white border border-slate-200/90 shadow-sm hover:bg-slate-50 transition-all shrink-0"
+                className="flex items-center gap-1.5 sm:gap-2 p-1 sm:pr-2.5 xl:pr-3 rounded-full bg-white border border-slate-200/90 shadow-sm hover:bg-slate-50 transition-all shrink-0 max-w-[170px] sm:max-w-[220px]"
               >
                 {/* Empty image avatar until staff adds by themselves */}
                 {user.avatar ? (
                   <img
                     src={user.avatar}
                     alt={user.name}
-                    className="w-7 h-7 rounded-full object-cover ring-2 ring-blue-500/20"
+                    className="w-7 h-7 rounded-full object-cover ring-2 ring-blue-500/20 shrink-0"
                   />
                 ) : (
-                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-[11px] flex items-center justify-center uppercase shadow-xs">
+                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-[11px] flex items-center justify-center uppercase shadow-xs shrink-0">
                     {getInitials(user.name)}
                   </div>
                 )}
-                <div className="hidden sm:block text-left">
-                  <p className="text-xs font-bold text-slate-900 leading-tight">{user.name}</p>
-                  <p className="text-[10px] text-slate-500 font-medium">{user.role}</p>
+                <div className="hidden sm:block text-left min-w-0">
+                  <p className="text-xs font-bold text-slate-900 leading-tight truncate">{user.name}</p>
+                  <p className="text-[10px] text-slate-500 font-medium truncate hidden xl:block">{user.role}</p>
                 </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block shrink-0" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden xl:block shrink-0" />
               </button>
             ) : (
               <button
