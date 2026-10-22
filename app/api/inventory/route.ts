@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       specs: body.specs || 'Standard specification',
       status: body.status || 'available',
       location: body.location || 'AI Lab',
-      serialNumber: snClean || `SN-${Math.floor(100000 + Math.random() * 900000)}`,
+      serialNumber: snClean || `-`,
       quantity: qty,
       availableQuantity: parseInt(body.availableQuantity || qty.toString(), 10),
       assignedTo: body.assignedTo || undefined,

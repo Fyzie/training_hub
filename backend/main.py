@@ -1030,7 +1030,7 @@ async def add_hardware(request: Request):
         "specs": body.get("specs", "Standard Specification"),
         "status": body.get("status", "available"),
         "location": body.get("location", "Lab Rack A"),
-        "serialNumber": body.get("serialNumber") or f"SN-{random.randint(100000, 999999)}",
+        "serialNumber": body.get("serialNumber") or "-",
         "quantity": qty,
         "availableQuantity": int(body.get("availableQuantity", qty)),
         "assignedTo": body.get("assignedTo"),

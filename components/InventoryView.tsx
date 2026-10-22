@@ -739,6 +739,25 @@ export function InventoryView() {
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
+            {onsiteViewMode === 'location' && locationEntries.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs ml-auto">
+                <button
+                  type="button"
+                  onClick={expandAllLocations}
+                  className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-bold transition-colors cursor-pointer"
+                >
+                  Expand All
+                </button>
+                <span className="text-slate-300">•</span>
+                <button
+                  type="button"
+                  onClick={collapseAllLocations}
+                  className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-bold transition-colors cursor-pointer"
+                >
+                  Collapse All
+                </button>
+              </div>
+            )}
             {/* View Mode Toggle: Per Device vs Per Location */}
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/70">
               <button
@@ -766,7 +785,6 @@ export function InventoryView() {
                 <span>View Per Onsite Location</span>
               </button>
             </div>
-
             <button
               type="button"
               onClick={() => setShowReturnedOnsite(!showReturnedOnsite)}
@@ -779,25 +797,7 @@ export function InventoryView() {
               {showReturnedOnsite ? 'Showing All (Active & Returned)' : 'Show Active Only'}
             </button>
 
-            {onsiteViewMode === 'location' && locationEntries.length > 0 && (
-              <div className="flex items-center gap-1.5 text-xs ml-auto">
-                <button
-                  type="button"
-                  onClick={expandAllLocations}
-                  className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-bold transition-colors cursor-pointer"
-                >
-                  Expand All
-                </button>
-                <span className="text-slate-300">•</span>
-                <button
-                  type="button"
-                  onClick={collapseAllLocations}
-                  className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-bold transition-colors cursor-pointer"
-                >
-                  Collapse All
-                </button>
-              </div>
-            )}
+
           </div>
         )}
       </div>
