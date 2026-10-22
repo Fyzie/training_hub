@@ -395,18 +395,16 @@ class JobScheduler {
                 <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981;"></span>
                 <span style="font-size: 11px; font-weight: bold; text-transform: uppercase; color: #64748b;">Training Status Alert</span>
               </div>
-              <h2 style="color: #0f172a; margin-top: 0;">🎉 Training Run Finished!</h2>
+              <h2 style="color: #0f172a; margin-top: 0;">Training Run Finished!</h2>
               <p style="color: #475569; font-size: 14px; line-height: 1.6;">Hello <strong>${targetUser.name}</strong>,</p>
               <p style="color: #475569; font-size: 14px; line-height: 1.6;">Your model training run for <strong>${job.name}</strong> (${job.taskType}) has completed all <strong>${job.totalEpochs}</strong> epochs successfully.</p>
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
                 <p style="margin: 4px 0; font-size: 13px;"><strong>Dataset:</strong> ${job.datasetName}</p>
-                <p style="margin: 4px 0; font-size: 13px;"><strong>Final mAP / Accuracy:</strong> ${(finalAcc * 100).toFixed(1)}%</p>
-                <p style="margin: 4px 0; font-size: 13px;"><strong>Total Epochs:</strong> ${job.totalEpochs}</p>
               </div>
               <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Workspace workstation.</p>
             </div>
           `,
-          text: `Training completed for ${job.name}. Final mAP / Accuracy: ${(finalAcc * 100).toFixed(1)}%.`
+          text: `Training completed for ${job.name}.`
         }).then((r) => {
           if (r.success) {
             console.log(`[Email] Dispatched training completion alert to ${targetUser.email}`);

@@ -774,7 +774,10 @@ export function InventoryView() {
               </button>
               <button
                 type="button"
-                onClick={() => setOnsiteViewMode('location')}
+                onClick={() => {
+                  setOnsiteViewMode('location');
+                  collapseAllLocations();
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                   onsiteViewMode === 'location'
                     ? 'bg-white text-amber-950 shadow-xs'
@@ -796,8 +799,6 @@ export function InventoryView() {
             >
               {showReturnedOnsite ? 'Showing All (Active & Returned)' : 'Show Active Only'}
             </button>
-
-
           </div>
         )}
       </div>

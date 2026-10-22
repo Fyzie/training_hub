@@ -3030,9 +3030,6 @@ dataset = version.download("coco")`
                           <h4 className="text-base font-extrabold text-slate-900">
                             Training Results & Metrics Curves
                           </h4>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Real loss convergence, validation mAP@50, mAP@50:95, and precision/recall curves from metrics.csv
-                          </p>
                         </div>
                         <a
                           href={`/uploads/runs/${current.id}/results.png`}
@@ -3143,9 +3140,6 @@ dataset = version.download("coco")`
                                 <h4 className="text-base font-extrabold text-slate-900">
                                   Confusion Matrix & Multi-Class Evaluation
                                 </h4>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                  Evaluated
-                                </span>
                               </div>
                               <p className="text-xs text-slate-400 mt-0.5">
                                 Ground truth distribution vs predicted classes across validation samples
