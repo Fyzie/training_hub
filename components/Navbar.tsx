@@ -362,37 +362,24 @@ export function Navbar({
                   </div>
 
                   <div className="max-h-80 overflow-y-auto space-y-2.5">
-                    {pendingUsers.length === 0 ? (
+                    {pendingUsers.filter((p) => p.status === 'pending').length === 0 ? (
                       <div className="text-xs text-slate-400 text-center py-6">
                         No pending approvals or alerts.
                       </div>
                     ) : (
-                      pendingUsers.map((item) => {
-                        const isPending = item.status === 'pending';
-                        const isApproved = item.status === 'approved';
+                      pendingUsers
+                        .filter((p) => p.status === 'pending')
+                        .map((item) => {
+                          const isPending = true;
 
-                        return (
-                          <div
-                            key={item.id}
-                            className={`p-3 rounded-2xl border transition-all text-xs ${
-                              isPending
-                                ? 'bg-amber-50/70 border-amber-200 shadow-xs'
-                                : isApproved
-                                ? 'bg-emerald-50/40 border-emerald-200'
-                                : 'bg-slate-50 border-slate-200 opacity-60'
-                            }`}
-                          >
+                          return (
+                            <div
+                              key={item.id}
+                              className="p-3 rounded-2xl border transition-all text-xs bg-amber-50/70 border-amber-200 shadow-xs"
+                            >
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <div
-                                  className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ${
-                                    isPending
-                                      ? 'bg-amber-500 text-white'
-                                      : isApproved
-                                      ? 'bg-emerald-600 text-white'
-                                      : 'bg-slate-400 text-white'
-                                  }`}
-                                >
+                                <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs bg-amber-500 text-white">
                                   {item.name ? item.name[0].toUpperCase() : 'U'}
                                 </div>
                                 <div>
@@ -401,15 +388,7 @@ export function Navbar({
                                 </div>
                               </div>
 
-                              <span
-                                className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                                  isPending
-                                    ? 'bg-amber-200 text-amber-900'
-                                    : isApproved
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-slate-200 text-slate-700'
-                                }`}
-                              >
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-200 text-amber-900">
                                 {item.role}
                               </span>
                             </div>
@@ -421,73 +400,57 @@ export function Navbar({
                               </span>
                             </div>
 
-                            {/* Status or Action Buttons */}
-                            {isPending ? (
-                              <div className="mt-2.5 pt-2 border-t border-amber-200/60 space-y-2">
-                                {user?.level === 'Admin' ? (
-                                  <>
-                                    <div className="flex items-center justify-between gap-2 text-[11px]">
-                                      <span className="font-bold text-slate-600">Assign Level:</span>
-                                      <select
-                                        value={pendingLevels[item.id] || 'Guest'}
-                                        onChange={(e) =>
-                                          setPendingLevels({
-                                            ...pendingLevels,
-                                            [item.id]: e.target.value as 'Admin' | 'Guest'
-                                          })
-                                        }
-                                        className="px-2 py-1 rounded-lg border border-slate-200 bg-white font-bold text-xs text-slate-800 outline-none"
-                                      >
-                                        <option value="Guest">Guest Level</option>
-                                        <option value="Admin">Admin Level</option>
-                                      </select>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        disabled={isApprovingId === item.id}
-                                        onClick={() => handleApproveUser(item.id)}
-                                        className="flex-1 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                                      >
-                                        <Check className="w-3.5 h-3.5" />
-                                        <span>
-                                          {isApprovingId === item.id
-                                            ? 'Approving...'
-                                            : `Approve as ${pendingLevels[item.id] || 'Guest'}`}
-                                        </span>
-                                      </button>
-                                      <button
-                                        disabled={isApprovingId === item.id}
-                                        onClick={() => handleRejectUser(item.id)}
-                                        className="py-1.5 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition-colors cursor-pointer"
-                                      >
-                                        Decline
-                                      </button>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="text-[11px] text-amber-700 italic py-1">
-                                    Approval requires an Admin level account.
+                            {/* Action Buttons for Pending Request */}
+                            <div className="mt-2.5 pt-2 border-t border-amber-200/60 space-y-2">
+                              {user?.level === 'Admin' ? (
+                                <>
+                                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="font-bold text-slate-600">Assign Level:</span>
+                                    <select
+                                      value={pendingLevels[item.id] || 'Guest'}
+                                      onChange={(e) =>
+                                        setPendingLevels({
+                                          ...pendingLevels,
+                                          [item.id]: e.target.value as 'Admin' | 'Guest'
+                                        })
+                                      }
+                                      className="px-2 py-1 rounded-lg border border-slate-200 bg-white font-bold text-xs text-slate-800 outline-none"
+                                    >
+                                      <option value="Guest">Guest Level</option>
+                                      <option value="Admin">Admin Level</option>
+                                    </select>
                                   </div>
-                                )}
-                              </div>
-                            ) : isApproved ? (
-                              <div className="mt-2 pt-2 border-t border-emerald-200/60 flex items-center justify-between text-[11px] text-emerald-800 font-semibold">
-                                <span className="flex items-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>New user already approved</span>
-                                </span>
-                                {item.approvedBy && (
-                                  <span className="text-[10px] text-emerald-600">by {item.approvedBy}</span>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="mt-2 pt-1.5 border-t border-slate-200 text-[11px] text-slate-500">
-                                Registration request declined
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      disabled={isApprovingId === item.id}
+                                      onClick={() => handleApproveUser(item.id)}
+                                      className="flex-1 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>
+                                        {isApprovingId === item.id
+                                          ? 'Approving...'
+                                          : `Approve as ${pendingLevels[item.id] || 'Guest'}`}
+                                      </span>
+                                    </button>
+                                    <button
+                                      disabled={isApprovingId === item.id}
+                                      onClick={() => handleRejectUser(item.id)}
+                                      className="py-1.5 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition-colors cursor-pointer"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-[11px] text-amber-700 italic py-1">
+                                  Approval requires an Admin level account.
+                                </div>
+                              )}
+                            </div>
+                            </div>
+                          );
+                        })
                     )}
                   </div>
                 </div>

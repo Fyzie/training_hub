@@ -150,6 +150,7 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
         total_annotations = 0
         all_categories = {}
         category_counts = {}
+        class_sizes = {}
         widths = []
         heights = []
         splits = {"train": 0, "val": 0, "test": 0}
@@ -193,6 +194,50 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
                     has_segmentation = True
                 if an.get("bbox"):
                     has_bbox = True
+                    bbox = an.get("bbox")
+                    if bbox and len(bbox) >= 4:
+                        try:
+                            bw = round(float(bbox[2]))
+                            bh = round(float(bbox[3]))
+                            if bw > 0 and bh > 0:
+                                if cname not in class_sizes:
+                                    class_sizes[cname] = {
+                                        "min_width": bw,
+                                        "min_height": bh,
+                                        "max_width": bw,
+                                        "max_height": bh
+                                    }
+                                else:
+                                    cs = class_sizes[cname]
+                                    cs["min_width"] = min(cs["min_width"], bw)
+                                    cs["min_height"] = min(cs["min_height"], bh)
+                                    cs["max_width"] = max(cs["max_width"], bw)
+                                    cs["max_height"] = max(cs["max_height"], bh)
+                        except Exception:
+                            pass
+                elif an.get("segmentation"):
+                    seg = an.get("segmentation")
+                    if isinstance(seg, list) and len(seg) > 0 and isinstance(seg[0], list):
+                        poly = seg[0]
+                        xs = poly[0::2]
+                        ys = poly[1::2]
+                        if xs and ys:
+                            bw = round(max(xs) - min(xs))
+                            bh = round(max(ys) - min(ys))
+                            if bw > 0 and bh > 0:
+                                if cname not in class_sizes:
+                                    class_sizes[cname] = {
+                                        "min_width": bw,
+                                        "min_height": bh,
+                                        "max_width": bw,
+                                        "max_height": bh
+                                    }
+                                else:
+                                    cs = class_sizes[cname]
+                                    cs["min_width"] = min(cs["min_width"], bw)
+                                    cs["min_height"] = min(cs["min_height"], bh)
+                                    cs["max_width"] = max(cs["max_width"], bw)
+                                    cs["max_height"] = max(cs["max_height"], bh)
 
         classes_list = sorted(list(category_counts.keys()))
         if not widths:
@@ -236,6 +281,8 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
             "numClasses": len(classes_list),
             "classes": classes_list,
             "classDistribution": category_counts,
+            "classSizes": class_sizes,
+            "classInstanceSizes": class_sizes,
             "splits": splits,
             "imageResolution": {
                 "min": {"width": min_w, "height": min_h},
@@ -249,6 +296,7 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
 
     # Classification folder structure check
     class_folders = {}
+    class_sizes = {}
     splits = {"train": 0, "val": 0, "test": 0}
     widths = []
     heights = []
@@ -274,12 +322,25 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
                         img_files = [f for f in os.listdir(cdir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
                         splits[norm_split] += len(img_files)
                         class_folders[cname] = class_folders.get(cname, 0) + len(img_files)
-                        # Sample up to 10 image dimensions
-                        for sample_f in img_files[:10]:
+                        # Sample image dimensions
+                        for sample_f in img_files[:20]:
                             try:
                                 with Image.open(os.path.join(cdir, sample_f)) as im:
                                     widths.append(im.width)
                                     heights.append(im.height)
+                                    if cname not in class_sizes:
+                                        class_sizes[cname] = {
+                                            "min_width": im.width,
+                                            "min_height": im.height,
+                                            "max_width": im.width,
+                                            "max_height": im.height
+                                        }
+                                    else:
+                                        cs = class_sizes[cname]
+                                        cs["min_width"] = min(cs["min_width"], im.width)
+                                        cs["min_height"] = min(cs["min_height"], im.height)
+                                        cs["max_width"] = max(cs["max_width"], im.width)
+                                        cs["max_height"] = max(cs["max_height"], im.height)
                             except Exception:
                                 pass
         if class_folders:
@@ -307,6 +368,8 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
             "numClasses": len(classes_list),
             "classes": classes_list,
             "classDistribution": class_folders,
+            "classSizes": class_sizes,
+            "classInstanceSizes": class_sizes,
             "splits": splits,
             "imageResolution": {
                 "min": {"width": min_w, "height": min_h},

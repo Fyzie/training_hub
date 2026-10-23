@@ -43,6 +43,47 @@ import {
   FolderArchive
 } from 'lucide-react';
 
+interface HyperparamRule {
+  min?: number;
+  max?: number;
+  isFloat?: boolean;
+  label: string;
+}
+
+const HYPERPARAM_RULES: Record<string, HyperparamRule> = {
+  epochs: { min: 1, max: 1000, label: 'Epochs' },
+  batchSize: { min: 1, max: 64, label: 'Batch size' },
+  gradAccumSteps: { min: 1, max: 32, label: 'Grad accumulation' },
+  lr: { min: 0.000001, max: 1, isFloat: true, label: 'Learning rate' },
+  valInterval: { min: 1, max: 100, label: 'Validation interval' },
+  saveInterval: { min: 1, max: 100, label: 'Save interval' },
+  earlyStoppingPatience: { min: 1, max: 100, label: 'Early stopping patience' },
+  weightDecay: { min: 0, max: 1, isFloat: true, label: 'Weight decay' },
+  labelSmoothing: { min: 0, max: 0.99, isFloat: true, label: 'Label smoothing' },
+};
+
+function getHyperparamError(field: string, val: number | string): string | null {
+  const rule = HYPERPARAM_RULES[field];
+  if (!rule) return null;
+  if (val === '' || val === undefined || val === null) {
+    return `${rule.label} is required`;
+  }
+  const num = Number(val);
+  if (isNaN(num)) {
+    return `${rule.label} must be a valid number`;
+  }
+  if (!rule.isFloat && !Number.isInteger(num)) {
+    return `${rule.label} must be a whole number`;
+  }
+  if (rule.min !== undefined && num < rule.min) {
+    return `${rule.label} must be at least ${rule.min}`;
+  }
+  if (rule.max !== undefined && num > rule.max) {
+    return `${rule.label} cannot exceed ${rule.max}`;
+  }
+  return null;
+}
+
 export function TrainingView() {
   const { user } = useAuth();
   const [subTab, setSubTab] = useState<'queue' | 'submit' | 'datasets' | 'results'>('queue');
@@ -64,15 +105,15 @@ export function TrainingView() {
     segModel: 'RFDETRSegSmall',
     datasetId: '',
     description: 'Instance segmentation training using RF-DETR architecture.',
-    // RF-DETR segmentation hyperparameters
-    epochs: 100,
-    batchSize: 4,
-    gradAccumSteps: 4,
-    lr: 0.0001,
-    valInterval: 1,
-    saveInterval: 10,
+    // RF-DETR segmentation hyperparameters (number | string for backspace deletion support)
+    epochs: 100 as number | string,
+    batchSize: 4 as number | string,
+    gradAccumSteps: 4 as number | string,
+    lr: 0.0001 as number | string,
+    valInterval: 1 as number | string,
+    saveInterval: 10 as number | string,
     earlyStopping: true,
-    earlyStoppingPatience: 10,
+    earlyStoppingPatience: 10 as number | string,
     device: 'cuda',
   });
 
@@ -83,14 +124,14 @@ export function TrainingView() {
     bboxModel: 'RFDETRSmall',
     datasetId: '',
     description: 'Object detection (bounding box) training using RF-DETR architecture.',
-    epochs: 100,
-    batchSize: 4,
-    gradAccumSteps: 4,
-    lr: 0.0001,
-    valInterval: 1,
-    saveInterval: 10,
+    epochs: 100 as number | string,
+    batchSize: 4 as number | string,
+    gradAccumSteps: 4 as number | string,
+    lr: 0.0001 as number | string,
+    valInterval: 1 as number | string,
+    saveInterval: 10 as number | string,
     earlyStopping: true,
-    earlyStoppingPatience: 10,
+    earlyStoppingPatience: 10 as number | string,
     device: 'cuda',
   });
 
@@ -101,16 +142,16 @@ export function TrainingView() {
     modelArchitecture: 'mobilenetv4_conv_small',
     datasetId: '',
     description: 'Image classification training using MobileNetV4 from timm.',
-    epochs: 100,
-    batchSize: 16,
-    lr: 0.0005,
+    epochs: 100 as number | string,
+    batchSize: 16 as number | string,
+    lr: 0.0005 as number | string,
     optimizer: 'AdamW',
-    weightDecay: 0.0001,
-    imgSize: 224,
+    weightDecay: 0.0001 as number | string,
+    imgSize: 224 as number | string,
     pretrained: true,
-    labelSmoothing: 0.1,
+    labelSmoothing: 0.1 as number | string,
     earlyStopping: true,
-    earlyStoppingPatience: 10,
+    earlyStoppingPatience: 10 as number | string,
     device: 'cuda',
   });
 
@@ -354,16 +395,27 @@ dataset = version.download("coco")`
       return;
     }
 
+    // Validate hyperparameters
+    const rfdetrFields = ['epochs', 'batchSize', 'gradAccumSteps', 'lr', 'valInterval', 'saveInterval'];
+    if (rfdetrForm.earlyStopping) rfdetrFields.push('earlyStoppingPatience');
+    for (const f of rfdetrFields) {
+      const err = getHyperparamError(f, (rfdetrForm as any)[f]);
+      if (err) {
+        setSubmitErrorModal(`Invalid hyperparameter: ${err}. Please correct it before submitting.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
         name: rfdetrForm.name.trim(),
         category: 'vision',
-        taskType: `RF-DETR (${rfdetrForm.segModel})`,
+        taskType: `RF-DETR Instance Segmentation (${rfdetrForm.segModel})`,
         datasetId: targetDatasetId,
-        epochs: rfdetrForm.epochs,
-        batchSize: rfdetrForm.batchSize,
-        learningRate: rfdetrForm.lr,
+        epochs: Number(rfdetrForm.epochs),
+        batchSize: Number(rfdetrForm.batchSize),
+        learningRate: Number(rfdetrForm.lr),
         device: 'cuda',
         submittedBy: user?.name || 'Staff ML Engineer',
         submittedById: user?.id,
@@ -371,15 +423,15 @@ dataset = version.download("coco")`
         hyperparameters: {
           model_architecture: rfdetrForm.segModel,
           run_name: rfdetrForm.runName || `${rfdetrForm.segModel}_Training`,
-          epochs: rfdetrForm.epochs,
-          batch_size: rfdetrForm.batchSize,
-          grad_accum_steps: rfdetrForm.gradAccumSteps,
-          lr: rfdetrForm.lr,
+          epochs: Number(rfdetrForm.epochs),
+          batch_size: Number(rfdetrForm.batchSize),
+          grad_accum_steps: Number(rfdetrForm.gradAccumSteps),
+          lr: Number(rfdetrForm.lr),
           device: 'cuda',
-          val_interval: rfdetrForm.valInterval,
-          save_interval: rfdetrForm.saveInterval,
+          val_interval: Number(rfdetrForm.valInterval),
+          save_interval: Number(rfdetrForm.saveInterval),
           early_stopping: rfdetrForm.earlyStopping,
-          early_stopping_patience: rfdetrForm.earlyStoppingPatience,
+          early_stopping_patience: Number(rfdetrForm.earlyStoppingPatience),
         }
       };
 
@@ -419,6 +471,17 @@ dataset = version.download("coco")`
       return;
     }
 
+    // Validate hyperparameters
+    const bboxFields = ['epochs', 'batchSize', 'gradAccumSteps', 'lr', 'valInterval', 'saveInterval'];
+    if (rfdetrBboxForm.earlyStopping) bboxFields.push('earlyStoppingPatience');
+    for (const f of bboxFields) {
+      const err = getHyperparamError(f, (rfdetrBboxForm as any)[f]);
+      if (err) {
+        setSubmitErrorModal(`Invalid hyperparameter: ${err}. Please correct it before submitting.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
@@ -426,9 +489,9 @@ dataset = version.download("coco")`
         category: 'vision',
         taskType: `RF-DETR Object Detection (${rfdetrBboxForm.bboxModel})`,
         datasetId: targetDatasetId,
-        epochs: rfdetrBboxForm.epochs,
-        batchSize: rfdetrBboxForm.batchSize,
-        learningRate: rfdetrBboxForm.lr,
+        epochs: Number(rfdetrBboxForm.epochs),
+        batchSize: Number(rfdetrBboxForm.batchSize),
+        learningRate: Number(rfdetrBboxForm.lr),
         device: 'cuda',
         submittedBy: user?.name || 'Staff ML Engineer',
         submittedById: user?.id,
@@ -436,15 +499,15 @@ dataset = version.download("coco")`
         hyperparameters: {
           model_architecture: rfdetrBboxForm.bboxModel,
           run_name: rfdetrBboxForm.runName || `${rfdetrBboxForm.bboxModel}_BBox_Training`,
-          epochs: rfdetrBboxForm.epochs,
-          batch_size: rfdetrBboxForm.batchSize,
-          grad_accum_steps: rfdetrBboxForm.gradAccumSteps,
-          lr: rfdetrBboxForm.lr,
+          epochs: Number(rfdetrBboxForm.epochs),
+          batch_size: Number(rfdetrBboxForm.batchSize),
+          grad_accum_steps: Number(rfdetrBboxForm.gradAccumSteps),
+          lr: Number(rfdetrBboxForm.lr),
           device: 'cuda',
-          val_interval: rfdetrBboxForm.valInterval,
-          save_interval: rfdetrBboxForm.saveInterval,
+          val_interval: Number(rfdetrBboxForm.valInterval),
+          save_interval: Number(rfdetrBboxForm.saveInterval),
           early_stopping: rfdetrBboxForm.earlyStopping,
-          early_stopping_patience: rfdetrBboxForm.earlyStoppingPatience,
+          early_stopping_patience: Number(rfdetrBboxForm.earlyStoppingPatience),
         }
       };
 
@@ -484,6 +547,17 @@ dataset = version.download("coco")`
       return;
     }
 
+    // Validate hyperparameters
+    const clfFields = ['epochs', 'lr', 'weightDecay', 'labelSmoothing'];
+    if (classificationForm.earlyStopping) clfFields.push('earlyStoppingPatience');
+    for (const f of clfFields) {
+      const err = getHyperparamError(f, (classificationForm as any)[f]);
+      if (err) {
+        setSubmitErrorModal(`Invalid hyperparameter: ${err}. Please correct it before submitting.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
@@ -491,9 +565,9 @@ dataset = version.download("coco")`
         category: 'vision',
         taskType: `Image Classification (${classificationForm.modelArchitecture})`,
         datasetId: targetDatasetId,
-        epochs: classificationForm.epochs,
-        batchSize: classificationForm.batchSize,
-        learningRate: classificationForm.lr,
+        epochs: Number(classificationForm.epochs),
+        batchSize: Number(classificationForm.batchSize),
+        learningRate: Number(classificationForm.lr),
         device: 'cuda',
         submittedBy: user?.name || 'Staff ML Engineer',
         submittedById: user?.id,
@@ -502,16 +576,16 @@ dataset = version.download("coco")`
           model_architecture: classificationForm.modelArchitecture,
           backbone: `MobileNetV4 (${classificationForm.modelArchitecture})`,
           run_name: classificationForm.runName || `${classificationForm.modelArchitecture}_Training`,
-          epochs: classificationForm.epochs,
-          batch_size: classificationForm.batchSize,
-          lr: classificationForm.lr,
+          epochs: Number(classificationForm.epochs),
+          batch_size: Number(classificationForm.batchSize),
+          lr: Number(classificationForm.lr),
           optimizer: classificationForm.optimizer,
-          weight_decay: classificationForm.weightDecay,
-          img_size: classificationForm.imgSize,
+          weight_decay: Number(classificationForm.weightDecay),
+          img_size: Number(classificationForm.imgSize),
           pretrained: classificationForm.pretrained,
-          label_smoothing: classificationForm.labelSmoothing,
+          label_smoothing: Number(classificationForm.labelSmoothing),
           early_stopping: classificationForm.earlyStopping,
-          early_stopping_patience: classificationForm.earlyStoppingPatience,
+          early_stopping_patience: Number(classificationForm.earlyStoppingPatience),
           device: 'cuda'
         }
       };
@@ -1330,6 +1404,7 @@ dataset = version.download("coco")`
 
               {/* Template Blocks Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+                
                 {/* 1. Instance Segmentation (Primary Focus) */}
                 <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-blue-500/80 hover:shadow-xl hover:border-blue-600 transition-all flex flex-col justify-between relative group">
                   <div>
@@ -1362,7 +1437,39 @@ dataset = version.download("coco")`
                   </div>
                 </div>
 
-                {/* 2. Image Classification (MobileNetV4 via timm Active Template) */}
+                {/* 2. Object Detection (RF-DETR BBox Active Template) */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-emerald-500/80 hover:shadow-xl hover:border-emerald-600 transition-all flex flex-col justify-between relative group">
+                  <div>
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mb-4 group-hover:scale-105 transition-transform">
+                      <Crosshair className="w-6 h-6" />
+                    </div>
+
+                    <h3 className="text-xl font-extrabold text-slate-900">Object Detection (BBox)</h3>
+
+                    <div className="mt-5 space-y-2 text-xs bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400 font-medium">Model Architecture:</span>
+                        <strong className="text-emerald-700">RF-DETR BBox</strong>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400 font-medium">Variants:</span>
+                        <strong className="text-slate-800">Nano, Small, Med, Base, Large</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-100">
+                    <button
+                      onClick={() => setSubmitView('detection')}
+                      className="w-full py-3 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 group-hover:translate-x-0.5 cursor-pointer"
+                    >
+                      <span>Choose template</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Image Classification (MobileNetV4 via timm Active Template) */}
                 <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-indigo-500/80 hover:shadow-xl hover:border-indigo-600 transition-all flex flex-col justify-between relative group">
                   <div>
                     <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mb-4 group-hover:scale-105 transition-transform">
@@ -1394,37 +1501,6 @@ dataset = version.download("coco")`
                   </div>
                 </div>
 
-                {/* 3. Object Detection (RF-DETR BBox Active Template) */}
-                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-emerald-500/80 hover:shadow-xl hover:border-emerald-600 transition-all flex flex-col justify-between relative group">
-                  <div>
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mb-4 group-hover:scale-105 transition-transform">
-                      <Crosshair className="w-6 h-6" />
-                    </div>
-
-                    <h3 className="text-xl font-extrabold text-slate-900">Object Detection (BBox)</h3>
-
-                    <div className="mt-5 space-y-2 text-xs bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
-                      <div className="flex items-center justify-between text-slate-700">
-                        <span className="text-slate-400 font-medium">Model Architecture:</span>
-                        <strong className="text-emerald-700">RF-DETR BBox</strong>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-700">
-                        <span className="text-slate-400 font-medium">Variants:</span>
-                        <strong className="text-slate-800">Nano, Small, Med, Base, Large</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 pt-4 border-t border-slate-100">
-                    <button
-                      onClick={() => setSubmitView('detection')}
-                      className="w-full py-3 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 group-hover:translate-x-0.5 cursor-pointer"
-                    >
-                      <span>Choose template</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           )}
@@ -1566,10 +1642,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="1000"
                         value={rfdetrForm.epochs}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, epochs: parseInt(e.target.value) || 100 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, epochs: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('epochs', rfdetrForm.epochs)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Total training epochs (Default: 100)</span>
+                      {getHyperparamError('epochs', rfdetrForm.epochs) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('epochs', rfdetrForm.epochs)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Total training epochs (Default: 100)</span>
+                      )}
                     </div>
 
                     {/* Batch Size */}
@@ -1582,10 +1669,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="64"
                         value={rfdetrForm.batchSize}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, batchSize: parseInt(e.target.value) || 4 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, batchSize: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('batchSize', rfdetrForm.batchSize)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Per-GPU batch size (Default: 4)</span>
+                      {getHyperparamError('batchSize', rfdetrForm.batchSize) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('batchSize', rfdetrForm.batchSize)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Per-GPU batch size (Default: 4)</span>
+                      )}
                     </div>
 
                     {/* Gradient Accumulation Steps */}
@@ -1598,10 +1696,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="32"
                         value={rfdetrForm.gradAccumSteps}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, gradAccumSteps: parseInt(e.target.value) || 4 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, gradAccumSteps: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('gradAccumSteps', rfdetrForm.gradAccumSteps)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Accumulation steps (Default: 4)</span>
+                      {getHyperparamError('gradAccumSteps', rfdetrForm.gradAccumSteps) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('gradAccumSteps', rfdetrForm.gradAccumSteps)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Accumulation steps (Default: 4)</span>
+                      )}
                     </div>
 
                     {/* Learning Rate */}
@@ -1613,10 +1722,21 @@ dataset = version.download("coco")`
                         type="number"
                         step="any"
                         value={rfdetrForm.lr}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, lr: parseFloat(e.target.value) || 0.0001 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, lr: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('lr', rfdetrForm.lr)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Base optimizer rate (Default: 1e-4)</span>
+                      {getHyperparamError('lr', rfdetrForm.lr) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('lr', rfdetrForm.lr)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Base optimizer rate (Default: 1e-4)</span>
+                      )}
                     </div>
 
                     {/* Validation Interval */}
@@ -1629,10 +1749,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="50"
                         value={rfdetrForm.valInterval}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, valInterval: parseInt(e.target.value) || 1 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, valInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('valInterval', rfdetrForm.valInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Evaluate validation set every N epochs</span>
+                      {getHyperparamError('valInterval', rfdetrForm.valInterval) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('valInterval', rfdetrForm.valInterval)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Evaluate validation set every N epochs</span>
+                      )}
                     </div>
 
                     {/* Save Interval */}
@@ -1645,10 +1776,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="100"
                         value={rfdetrForm.saveInterval}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, saveInterval: parseInt(e.target.value) || 10 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, saveInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('saveInterval', rfdetrForm.saveInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Save checkpoint every N epochs</span>
+                      {getHyperparamError('saveInterval', rfdetrForm.saveInterval) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('saveInterval', rfdetrForm.saveInterval)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Save checkpoint every N epochs</span>
+                      )}
                     </div>
                   </div>
 
@@ -1673,14 +1815,24 @@ dataset = version.download("coco")`
                           Patience (<code className="text-blue-600 font-mono">early_stopping_patience</code>)
                         </label>
                         <span className="text-[10px] text-slate-400">Epochs to wait before early stop</span>
+                        {rfdetrForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrForm.earlyStoppingPatience) && (
+                          <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-0.5">
+                            <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                            <span>{getHyperparamError('earlyStoppingPatience', rfdetrForm.earlyStoppingPatience)}</span>
+                          </span>
+                        )}
                       </div>
                       <input
                         type="number"
                         min="1"
                         max="100"
                         value={rfdetrForm.earlyStoppingPatience}
-                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, earlyStoppingPatience: parseInt(e.target.value) || 10 })}
-                        className="w-20 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500/20 text-center"
+                        onChange={(e) => setRfdetrForm({ ...rfdetrForm, earlyStoppingPatience: e.target.value })}
+                        className={`w-20 px-3 py-1.5 rounded-xl border text-xs font-bold bg-white text-center transition-all ${
+                          rfdetrForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrForm.earlyStoppingPatience)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-blue-500/20 text-slate-800'
+                        }`}
                         disabled={!rfdetrForm.earlyStopping}
                       />
                     </div>
@@ -1848,10 +2000,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="1000"
                         value={rfdetrBboxForm.epochs}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, epochs: parseInt(e.target.value) || 100 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, epochs: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('epochs', rfdetrBboxForm.epochs)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Total training epochs (Default: 100)</span>
+                      {getHyperparamError('epochs', rfdetrBboxForm.epochs) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('epochs', rfdetrBboxForm.epochs)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Total training epochs (Default: 100)</span>
+                      )}
                     </div>
 
                     {/* Batch Size */}
@@ -1864,10 +2027,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="64"
                         value={rfdetrBboxForm.batchSize}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, batchSize: parseInt(e.target.value) || 4 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, batchSize: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('batchSize', rfdetrBboxForm.batchSize)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Per-GPU batch size (Default: 4)</span>
+                      {getHyperparamError('batchSize', rfdetrBboxForm.batchSize) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('batchSize', rfdetrBboxForm.batchSize)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Per-GPU batch size (Default: 4)</span>
+                      )}
                     </div>
 
                     {/* Gradient Accumulation Steps */}
@@ -1880,10 +2054,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="32"
                         value={rfdetrBboxForm.gradAccumSteps}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, gradAccumSteps: parseInt(e.target.value) || 4 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, gradAccumSteps: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('gradAccumSteps', rfdetrBboxForm.gradAccumSteps)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Accumulation steps (Default: 4)</span>
+                      {getHyperparamError('gradAccumSteps', rfdetrBboxForm.gradAccumSteps) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('gradAccumSteps', rfdetrBboxForm.gradAccumSteps)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Accumulation steps (Default: 4)</span>
+                      )}
                     </div>
 
                     {/* Learning Rate (with step="any" to prevent browser rounding error) */}
@@ -1895,10 +2080,21 @@ dataset = version.download("coco")`
                         type="number"
                         step="any"
                         value={rfdetrBboxForm.lr}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, lr: parseFloat(e.target.value) || 0.0001 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, lr: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('lr', rfdetrBboxForm.lr)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Base optimizer rate (Default: 1e-4)</span>
+                      {getHyperparamError('lr', rfdetrBboxForm.lr) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('lr', rfdetrBboxForm.lr)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Base optimizer rate (Default: 1e-4)</span>
+                      )}
                     </div>
 
                     {/* Validation Interval */}
@@ -1911,10 +2107,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="50"
                         value={rfdetrBboxForm.valInterval}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, valInterval: parseInt(e.target.value) || 1 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, valInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('valInterval', rfdetrBboxForm.valInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Evaluate validation set every N epochs</span>
+                      {getHyperparamError('valInterval', rfdetrBboxForm.valInterval) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('valInterval', rfdetrBboxForm.valInterval)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Evaluate validation set every N epochs</span>
+                      )}
                     </div>
 
                     {/* Save Interval */}
@@ -1927,10 +2134,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="100"
                         value={rfdetrBboxForm.saveInterval}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, saveInterval: parseInt(e.target.value) || 10 })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, saveInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('saveInterval', rfdetrBboxForm.saveInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Save checkpoint every N epochs</span>
+                      {getHyperparamError('saveInterval', rfdetrBboxForm.saveInterval) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('saveInterval', rfdetrBboxForm.saveInterval)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Save checkpoint every N epochs</span>
+                      )}
                     </div>
                   </div>
 
@@ -1955,14 +2173,24 @@ dataset = version.download("coco")`
                           Patience (<code className="text-emerald-600 font-mono">early_stopping_patience</code>)
                         </label>
                         <span className="text-[10px] text-slate-400">Epochs to wait before early stop</span>
+                        {rfdetrBboxForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrBboxForm.earlyStoppingPatience) && (
+                          <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-0.5">
+                            <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                            <span>{getHyperparamError('earlyStoppingPatience', rfdetrBboxForm.earlyStoppingPatience)}</span>
+                          </span>
+                        )}
                       </div>
                       <input
                         type="number"
                         min="1"
                         max="100"
                         value={rfdetrBboxForm.earlyStoppingPatience}
-                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, earlyStoppingPatience: parseInt(e.target.value) || 10 })}
-                        className="w-20 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-emerald-500/20 text-center"
+                        onChange={(e) => setRfdetrBboxForm({ ...rfdetrBboxForm, earlyStoppingPatience: e.target.value })}
+                        className={`w-20 px-3 py-1.5 rounded-xl border text-xs font-bold bg-white text-center transition-all ${
+                          rfdetrBboxForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrBboxForm.earlyStoppingPatience)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-emerald-500/20 text-slate-800'
+                        }`}
                         disabled={!rfdetrBboxForm.earlyStopping}
                       />
                     </div>
@@ -2130,10 +2358,21 @@ dataset = version.download("coco")`
                         min="1"
                         max="1000"
                         value={classificationForm.epochs}
-                        onChange={(e) => setClassificationForm({ ...classificationForm, epochs: parseInt(e.target.value) || 1 })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        onChange={(e) => setClassificationForm({ ...classificationForm, epochs: e.target.value })}
+                        className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('epochs', classificationForm.epochs)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-indigo-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Full iterations over dataset</span>
+                      {getHyperparamError('epochs', classificationForm.epochs) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('epochs', classificationForm.epochs)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Full iterations over dataset (Default: 100)</span>
+                      )}
                     </div>
 
                     {/* Batch Size */}
@@ -2143,7 +2382,7 @@ dataset = version.download("coco")`
                       </label>
                       <select
                         value={classificationForm.batchSize}
-                        onChange={(e) => setClassificationForm({ ...classificationForm, batchSize: parseInt(e.target.value) || 16 })}
+                        onChange={(e) => setClassificationForm({ ...classificationForm, batchSize: e.target.value })}
                         className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
                       >
                         <option value={4}>4</option>
@@ -2164,10 +2403,21 @@ dataset = version.download("coco")`
                         type="number"
                         step="any"
                         value={classificationForm.lr}
-                        onChange={(e) => setClassificationForm({ ...classificationForm, lr: parseFloat(e.target.value) || 0.0005 })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        onChange={(e) => setClassificationForm({ ...classificationForm, lr: e.target.value })}
+                        className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('lr', classificationForm.lr)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-indigo-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Initial optimizer learning rate</span>
+                      {getHyperparamError('lr', classificationForm.lr) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('lr', classificationForm.lr)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Initial optimizer learning rate (Default: 5e-4)</span>
+                      )}
                     </div>
 
                     {/* Optimizer */}
@@ -2197,10 +2447,21 @@ dataset = version.download("coco")`
                         type="number"
                         step="any"
                         value={classificationForm.weightDecay}
-                        onChange={(e) => setClassificationForm({ ...classificationForm, weightDecay: parseFloat(e.target.value) || 0.0001 })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        onChange={(e) => setClassificationForm({ ...classificationForm, weightDecay: e.target.value })}
+                        className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('weightDecay', classificationForm.weightDecay)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-indigo-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">L2 regularization factor</span>
+                      {getHyperparamError('weightDecay', classificationForm.weightDecay) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('weightDecay', classificationForm.weightDecay)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">L2 regularization factor (Default: 1e-4)</span>
+                      )}
                     </div>
 
                     {/* Image Resolution */}
@@ -2210,7 +2471,7 @@ dataset = version.download("coco")`
                       </label>
                       <select
                         value={classificationForm.imgSize}
-                        onChange={(e) => setClassificationForm({ ...classificationForm, imgSize: parseInt(e.target.value) || 224 })}
+                        onChange={(e) => setClassificationForm({ ...classificationForm, imgSize: e.target.value })}
                         className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
                       >
                         <option value={224}>224 x 224 (Standard ImageNet)</option>
@@ -2229,10 +2490,21 @@ dataset = version.download("coco")`
                         type="number"
                         step="any"
                         value={classificationForm.labelSmoothing}
-                        onChange={(e) => setClassificationForm({ ...classificationForm, labelSmoothing: parseFloat(e.target.value) || 0.0 })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
+                        onChange={(e) => setClassificationForm({ ...classificationForm, labelSmoothing: e.target.value })}
+                        className={`w-full px-3.5 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('labelSmoothing', classificationForm.labelSmoothing)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-indigo-500/20 text-slate-800'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">Regularization epsilon for cross-entropy</span>
+                      {getHyperparamError('labelSmoothing', classificationForm.labelSmoothing) ? (
+                        <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{getHyperparamError('labelSmoothing', classificationForm.labelSmoothing)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-1 block">Regularization epsilon (Default: 0.1)</span>
+                      )}
                     </div>
                   </div>
 
@@ -3537,12 +3809,22 @@ dataset = version.download("coco")`
                         {datasetAnalysis.classes.map((cName: string) => {
                           const count = dist[cName] ?? 0;
                           const pct = totalClassInstances > 0 ? ((count / totalClassInstances) * 100).toFixed(1) : '0.0';
+                          const classSize = (datasetAnalysis.classSizes && datasetAnalysis.classSizes[cName]) || (datasetAnalysis.classInstanceSizes && datasetAnalysis.classInstanceSizes[cName]);
 
                           return (
                             <div key={cName} className="bg-white p-2.5 rounded-xl border border-slate-200/80 text-xs space-y-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-                              <div className="flex items-center justify-between font-bold">
-                                <span className="text-slate-800">{cName}</span>
-                                <div className="flex items-center gap-2">
+                              <div className="flex items-center justify-between font-bold gap-2">
+                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                  <span className="text-slate-800 truncate">{cName}</span>
+                                  {classSize && (
+                                    <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200/70 px-2 py-0.5 rounded-lg">
+                                      <span>Min: <strong className="text-slate-700 font-mono">{classSize.min_width}×{classSize.min_height} px</strong></span>
+                                      <span className="text-slate-300">•</span>
+                                      <span>Max: <strong className="text-slate-700 font-mono">{classSize.max_width}×{classSize.max_height} px</strong></span>
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
                                   <span className="text-slate-900 font-black">
                                     {count.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">({count === 1 ? 'instance' : 'instances'})</span>
                                   </span>

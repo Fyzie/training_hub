@@ -81,16 +81,19 @@ export const dataStore = {
   },
 
   // Pending Users (Require approval from existing users)
-  getPendingUsers: (): PendingUser[] => readJsonFile<PendingUser[]>('pending_users.json', []),
+  getPendingUsers: (): PendingUser[] => {
+    const list = readJsonFile<PendingUser[]>('pending_users.json', []);
+    return list.filter((p) => p.status === 'pending');
+  },
   savePendingUsers: (items: PendingUser[]) => writeJsonFile('pending_users.json', items),
   addPendingUser: (user: PendingUser) => {
-    const list = dataStore.getPendingUsers();
+    const list = readJsonFile<PendingUser[]>('pending_users.json', []);
     list.unshift(user);
     dataStore.savePendingUsers(list);
     return user;
   },
   approvePendingUser: (id: string, approvedBy: string, level: 'Admin' | 'Guest' = 'Guest') => {
-    const pendingList = dataStore.getPendingUsers();
+    const pendingList = readJsonFile<PendingUser[]>('pending_users.json', []);
     const item = pendingList.find((p) => p.id === id);
     if (!item) return null;
 
@@ -98,7 +101,10 @@ export const dataStore = {
     item.approvedBy = approvedBy;
     item.approvedAt = new Date().toISOString();
     item.level = level;
-    dataStore.savePendingUsers(pendingList);
+
+    // Remove approved request from pending list so notification is immediately cleared
+    const remainingPending = pendingList.filter((p) => p.id !== id);
+    dataStore.savePendingUsers(remainingPending);
 
     // Transfer into approved users.json
     const users = dataStore.getUsers();
@@ -126,13 +132,15 @@ export const dataStore = {
     return { pendingUser: item, staffUser };
   },
   rejectPendingUser: (id: string, rejectedBy: string) => {
-    const pendingList = dataStore.getPendingUsers();
+    const pendingList = readJsonFile<PendingUser[]>('pending_users.json', []);
     const item = pendingList.find((p) => p.id === id);
     if (!item) return null;
     item.status = 'rejected';
     item.approvedBy = rejectedBy;
     item.approvedAt = new Date().toISOString();
-    dataStore.savePendingUsers(pendingList);
+    // Remove rejected request from pending list
+    const remainingPending = pendingList.filter((p) => p.id !== id);
+    dataStore.savePendingUsers(remainingPending);
     return item;
   },
 

@@ -20,6 +20,13 @@ function MainApp() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setLanHost(window.location.host);
+      // Auto-open modal if email password reset link or token was clicked
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get('action');
+      const token = params.get('token') || params.get('resetToken');
+      if (token || action === 'reset-password' || action === 'reset' || action === 'reset_password') {
+        setShowLoginModal(true);
+      }
     }
   }, []);
 

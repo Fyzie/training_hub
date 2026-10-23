@@ -106,6 +106,10 @@ export async function GET(
       numClasses: dataset.classes?.length || 1,
       classes: dataset.classes || ['object'],
       classDistribution: (dataset.classes || ['object']).reduce((acc, c) => ({ ...acc, [c]: dataset.sampleCount || 100 }), {}),
+      classSizes: (dataset.classes || ['object']).reduce((acc, c) => ({
+        ...acc,
+        [c]: { min_width: 32, min_height: 32, max_width: 640, max_height: 640 }
+      }), {}),
       splits: dataset.splits || {
         train: Math.round((dataset.sampleCount || 100) * 0.8),
         val: Math.round((dataset.sampleCount || 100) * 0.2),

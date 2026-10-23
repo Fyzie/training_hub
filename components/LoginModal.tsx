@@ -97,28 +97,32 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const [errorMessage, setErrorMessage] = useState('');
   const [pendingMessage, setPendingMessage] = useState('');
 
-  // Detect query params for password reset on mount
+  // Detect query params for password reset on mount or when modal opens
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const action = params.get('action');
-      const token = params.get('token');
-      if (action === 'reset-password' && token) {
+      const token = params.get('token') || params.get('resetToken');
+      if (token && (action === 'reset-password' || action === 'reset' || action === 'reset_password' || !action)) {
         setResetToken(token);
         setAuthMode('reset-password');
       }
     }
-  }, []);
+  }, [isOpen]);
 
   // Default to register if no users exist yet
   useEffect(() => {
     if (authMode === 'reset-password') return;
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('token') || params.get('resetToken')) return;
+    }
     if (allUsers.length === 0) {
       setAuthMode('register');
     } else if (authMode !== 'forgot-password') {
       setAuthMode('login');
     }
-  }, [allUsers.length, isOpen]);
+  }, [allUsers.length, isOpen, authMode]);
 
   if (!isOpen) return null;
 

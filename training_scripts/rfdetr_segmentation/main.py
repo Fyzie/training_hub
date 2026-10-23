@@ -376,10 +376,30 @@ def plot_training_results_from_metrics(metrics_csv_path: str, output_image_path:
         ax5.legend(loc="upper right", frameon=True, facecolor="#ffffff")
 
     # ==========================================
-    # Panel 6 (Row 1, Col 2): Unused / Hidden (since train/lr was removed)
+    # Panel 6 (Row 1, Col 2): Class Error or Hidden
     # ==========================================
     ax6 = axs[1, 2]
-    ax6.axis("off")  # Turn off the 6th empty slot
+    ax6.set_facecolor("#f8fafc")
+    has_err = False
+    if "train/class_error" in epoch_df.columns:
+        valid = epoch_df["train/class_error"].dropna()
+        if not valid.empty:
+            ax6.plot(epoch_df.loc[valid.index, "epoch"], valid.values, label="Train Class Error", color=c_blue, linewidth=1.5)
+            has_err = True
+    if "val/class_error" in epoch_df.columns:
+        valid = epoch_df["val/class_error"].dropna()
+        if not valid.empty:
+            ax6.plot(epoch_df.loc[valid.index, "epoch"], valid.values, label="Val Class Error", color=c_red, linewidth=1.5, linestyle="--")
+            has_err = True
+
+    if has_err:
+        ax6.set_title("Classification Error Rate", fontsize=13, fontweight="bold", pad=10, color="#0f172a")
+        ax6.set_xlabel("Epoch", fontsize=11, color="#475569")
+        ax6.set_ylabel("Error %", fontsize=11, color="#475569")
+        ax6.grid(True, linestyle=":", alpha=0.6)
+        ax6.legend(loc="upper right", frameon=True, facecolor="#ffffff")
+    else:
+        ax6.axis("off")
 
     plt.tight_layout(pad=3.0)
     os.makedirs(os.path.dirname(os.path.abspath(output_image_path)), exist_ok=True)

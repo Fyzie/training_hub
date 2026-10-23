@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Readable } from 'stream';
 import { dataStore } from '@/lib/data-store';
 import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir } from '@/lib/storage';
 import { getHostPythonExe } from '@/lib/python-runtime';
@@ -39,11 +40,15 @@ export async function GET(
 
     // If it's already a zip file
     if (fs.statSync(/*turbopackIgnore: true*/ datasetPath).isFile()) {
-      const fileBuffer = fs.readFileSync(/*turbopackIgnore: true*/ datasetPath);
-      return new NextResponse(fileBuffer, {
+      const stat = fs.statSync(/*turbopackIgnore: true*/ datasetPath);
+      const webStream = Readable.toWeb(fs.createReadStream(/*turbopackIgnore: true*/ datasetPath));
+      return new NextResponse(webStream as any, {
         headers: {
           'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${safeName}.zip"`
+          'Content-Disposition': `attachment; filename="${safeName}.zip"`,
+          'Content-Length': stat.size.toString(),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-cache'
         }
       });
     }
@@ -54,9 +59,10 @@ export async function GET(
       fs.mkdirSync(cacheDir, { recursive: true });
     }
     const zipPath = path.join(cacheDir, `${dataset.id}.zip`);
+    const tmpZipPath = `${zipPath}.${Date.now()}.tmp`;
 
     // Zip using Python script if not already cached
-    if (!fs.existsSync(zipPath)) {
+    if (!fs.existsSync(zipPath) || fs.statSync(zipPath).size < 100) {
       const pythonExe = getHostPythonExe();
       const scriptPath = path.join(process.cwd(), 'scripts', 'dataset_tools.py');
 
@@ -68,25 +74,37 @@ export async function GET(
           '--dataset_dir',
           datasetPath,
           '--target_zip',
-          zipPath
-        ]);
+          tmpZipPath
+        ], { windowsHide: true });
+
         let stderr = '';
         child.stderr.on('data', (d) => { stderr += d.toString(); });
         child.on('close', (code) => {
-          if (code === 0 && fs.existsSync(zipPath)) {
+          if (code === 0 && fs.existsSync(tmpZipPath)) {
+            try {
+              if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+              fs.renameSync(tmpZipPath, zipPath);
+            } catch {}
             resolve();
           } else {
+            if (fs.existsSync(tmpZipPath)) {
+              try { fs.unlinkSync(tmpZipPath); } catch {}
+            }
             reject(new Error(stderr || `Failed to zip dataset (code ${code})`));
           }
         });
       });
     }
 
-    const zipBuffer = fs.readFileSync(zipPath);
-    return new NextResponse(zipBuffer, {
+    const stat = fs.statSync(zipPath);
+    const webStream = Readable.toWeb(fs.createReadStream(zipPath));
+    return new NextResponse(webStream as any, {
       headers: {
         'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${safeName}.zip"`
+        'Content-Disposition': `attachment; filename="${safeName}.zip"`,
+        'Content-Length': stat.size.toString(),
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache'
       }
     });
   } catch (err: any) {
@@ -94,4 +112,3 @@ export async function GET(
     return NextResponse.json({ error: err.message || 'Failed to download dataset' }, { status: 500 });
   }
 }
-
