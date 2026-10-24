@@ -749,19 +749,24 @@ dataset = version.download("coco")`
 
   // Handle user selecting or dropping any file
   const handleFileSelect = (file: File) => {
-    setUploadFile(file);
-    const ext = file.name.split('.').pop()?.toLowerCase();
+    // Automatically sanitize filename: replace spaces and unsafe characters with underscores
+    const safeFileName = file.name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeFile = new File([file], safeFileName, { type: file.type });
+    setUploadFile(safeFile);
+
+    const ext = safeFileName.split('.').pop()?.toLowerCase();
+    const cleanBaseName = safeFileName.replace(/\.[^/.]+$/, '').replace(/_+/g, '_');
     if (ext === 'csv' || ext === 'xlsx' || ext === 'xls' || ext === 'tsv' || ext === 'parquet') {
       setDatasetForm((prev) => ({
         ...prev,
         domain: 'Tabular',
         category: 'tabular',
-        name: prev.name || file.name.replace(/\.[^/.]+$/, '')
+        name: prev.name || cleanBaseName
       }));
     } else {
       setDatasetForm((prev) => ({
         ...prev,
-        name: prev.name || file.name.replace(/\.[^/.]+$/, '')
+        name: prev.name || cleanBaseName
       }));
     }
   };
@@ -773,7 +778,8 @@ dataset = version.download("coco")`
     setUploadError('');
 
     const optimisticId = `temp-upload-${Date.now()}`;
-    const datasetName = datasetForm.name.trim() || (uploadFile ? uploadFile.name.replace(/\.[^/.]+$/, '') : (datasetUploadMode === 'roboflow' ? 'Roboflow Dataset' : 'Custom Dataset'));
+    const rawName = datasetForm.name.trim() || (uploadFile ? uploadFile.name.replace(/\.[^/.]+$/, '') : (datasetUploadMode === 'roboflow' ? 'Roboflow Dataset' : 'Custom Dataset'));
+    const datasetName = rawName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
     const userName = user?.name || 'Staff ML Engineer';
 
     // Add optimistic dataset block to Catalogued Datasets list immediately
@@ -834,13 +840,14 @@ dataset = version.download("coco")`
           return;
         }
 
+        const safeFileName = (uploadFile.name || 'dataset.zip').trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
         const formData = new FormData();
         formData.append('name', datasetName);
         formData.append('category', datasetForm.category);
         formData.append('domain', datasetForm.domain);
         formData.append('description', datasetForm.description);
         formData.append('uploadedBy', userName);
-        formData.append('file', uploadFile);
+        formData.append('file', uploadFile, safeFileName);
 
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
@@ -2939,8 +2946,8 @@ dataset = version.download("coco")`
                         </span>
                         <span className="text-[10px] text-slate-400 mt-0.5">
                           {uploadFile
-                            ? `${(uploadFile.size / (1024 * 1024)).toFixed(1)} MB • Click to replace`
-                            : 'Supports .zip, .xlsx, .csv, or any archive / table'}
+                            ? `${(uploadFile.size / (1024 * 1024)).toFixed(1)} MB • Sanitized: ${uploadFile.name} • Click to replace`
+                            : 'Supports .zip, .xlsx, .csv, or any archive / table (spaces auto-handled)'}
                         </span>
                         <input
                           ref={fileInputRef}

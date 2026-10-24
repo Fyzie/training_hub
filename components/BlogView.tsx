@@ -295,8 +295,9 @@ export function BlogView() {
 
   const uploadAndInsertImage = async (file: File) => {
     try {
+      const safeName = file.name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', file, safeName);
       formData.append('type', 'image');
 
       const res = await fetch('/api/upload', {
@@ -340,8 +341,9 @@ export function BlogView() {
     setIsSubmitting(true);
     setDocUploadError(null);
     try {
+      const safeName = uploadedFile.name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
       const formData = new FormData();
-      formData.append('file', uploadedFile);
+      formData.append('file', uploadedFile, safeName);
       formData.append('type', 'doc');
 
       const uploadRes = await fetch('/api/upload', {
@@ -379,8 +381,9 @@ export function BlogView() {
       const uploadedExtras: BlogAttachment[] = [];
       for (const extra of additionalFiles) {
         try {
+          const safeExtra = extra.name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
           const extraFormData = new FormData();
-          extraFormData.append('file', extra);
+          extraFormData.append('file', extra, safeExtra);
           extraFormData.append('type', 'doc');
           const extraRes = await fetch('/api/upload', { method: 'POST', body: extraFormData });
           if (extraRes.ok) {
@@ -506,8 +509,9 @@ export function BlogView() {
       const uploadedExtras: BlogAttachment[] = [...existingAttachments];
       for (const extra of additionalFiles) {
         try {
+          const safeExtra = extra.name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
           const extraFormData = new FormData();
-          extraFormData.append('file', extra);
+          extraFormData.append('file', extra, safeExtra);
           extraFormData.append('type', 'doc');
           const extraRes = await fetch('/api/upload', { method: 'POST', body: extraFormData });
           if (extraRes.ok) {

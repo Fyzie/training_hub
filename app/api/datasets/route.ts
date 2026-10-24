@@ -158,7 +158,10 @@ export async function POST(request: Request) {
         if (!fs.existsSync(UPLOAD_DIR)) {
           fs.mkdirSync(UPLOAD_DIR, { recursive: true });
         }
-        const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        const rawFileName = (file.name || 'dataset.zip').trim();
+        const cleanBase = rawFileName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const cleanExt = path.extname(rawFileName) || '.zip';
+        const safeName = `${Date.now()}_${cleanBase}${cleanExt}`;
         const buffer = Buffer.from(await file.arrayBuffer());
         destPath = path.join(UPLOAD_DIR, safeName);
         fs.writeFileSync(destPath, buffer);
@@ -223,7 +226,7 @@ export async function POST(request: Request) {
 
       const newDataset: Dataset = {
         id: `ds-${Date.now().toString(36)}`,
-        name: name || (file ? file.name.replace(/\.[^/.]+$/, '') : 'Custom Dataset'),
+        name: (name || (file ? file.name.replace(/\.[^/.]+$/, '') : 'Custom Dataset')).trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_'),
         category: resolvedCategory,
         domain: resolvedDomain,
         description,

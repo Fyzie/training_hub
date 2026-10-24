@@ -22,8 +22,9 @@ export async function POST(request: Request) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
 
-    const ext = path.extname(file.name);
-    const baseName = path.basename(file.name, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const rawName = (file.name || 'file.bin').trim();
+    const ext = path.extname(rawName);
+    const baseName = path.basename(rawName, ext).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
     const safeName = `${Date.now()}_${baseName}${ext}`;
     const destPath = path.join(uploadDir, safeName);
 
