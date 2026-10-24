@@ -229,7 +229,7 @@ dataset = version.download("coco")`
         setDatasets((prev) => {
           const uploadingItems = prev.filter((d) => d.isUploading);
           const remainingUploading = uploadingItems.filter(
-            (u) => !dData.some((real: Dataset) => real.name === u.name || real.id === u.id)
+            (u) => !dData.some((real: Dataset) => real.id === u.id)
           );
           return [...remainingUploading, ...dData];
         });
@@ -847,8 +847,8 @@ dataset = version.download("coco")`
           xhr.open('POST', '/api/datasets');
 
           xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
+            if (event.lengthComputable && event.total > 0) {
+              const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
               const loadedMb = (event.loaded / (1024 * 1024)).toFixed(1);
               const totalMb = (event.total / (1024 * 1024)).toFixed(1);
               setDatasets((prev) =>
@@ -857,12 +857,35 @@ dataset = version.download("coco")`
                     ? {
                         ...d,
                         uploadProgress: percent,
-                        uploadStatusText: percent >= 100 ? 'Processing & extracting archive on server...' : `Uploading: ${percent}% (${loadedMb}MB / ${totalMb}MB)`
+                        uploadStatusText: `Uploading: ${percent}% (${loadedMb}MB / ${totalMb}MB)`
                       }
                     : d
                 )
               );
             }
+          };
+
+          xhr.upload.onload = () => {
+            const totalMb = uploadFile ? (uploadFile.size / (1024 * 1024)).toFixed(1) : '0';
+            setDatasets((prev) =>
+              prev.map((d) =>
+                d.id === optimisticId
+                  ? {
+                      ...d,
+                      uploadProgress: 100,
+                      uploadStatusText: `Upload complete (${totalMb}MB) • Inspecting & cataloging dataset on server...`
+                    }
+                  : d
+              )
+            );
+          };
+
+          xhr.upload.onerror = () => {
+            reject(new Error('Network error occurred during dataset upload'));
+          };
+
+          xhr.upload.onabort = () => {
+            reject(new Error('Dataset upload was canceled'));
           };
 
           xhr.onload = () => {

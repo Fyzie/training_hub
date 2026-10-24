@@ -15,50 +15,293 @@ import os
 import sys
 import json
 import zipfile
+import io
 import argparse
 from pathlib import Path
 from PIL import Image
+
+def analyze_zip_archive(real_path: str, domain: str = "") -> dict:
+    """Fast, in-memory inspection of zip archives without extracting thousands of files to disk."""
+    size_mb = round(os.path.getsize(real_path) / (1024 * 1024), 2)
+    try:
+        with zipfile.ZipFile(real_path, 'r') as zf:
+            namelist = zf.namelist()
+
+            # 1. Search COCO JSON files
+            coco_files = [
+                n for n in namelist
+                if (n.lower().endswith(('_annotations.coco.json', 'annotation.json', 'annotations.json', 'instances_train.json', 'instances_val.json', 'instances_test.json'))
+                    or n.lower().endswith('.coco.json'))
+                and not n.startswith('__MACOSX')
+            ]
+
+            if coco_files:
+                total_images = 0
+                total_annotations = 0
+                all_categories = {}
+                category_counts = {}
+                class_sizes = {}
+                widths = []
+                heights = []
+                splits = {"train": 0, "val": 0, "test": 0}
+                has_segmentation = False
+                has_bbox = False
+
+                for cpath in coco_files:
+                    split_key = os.path.basename(os.path.dirname(cpath)) or os.path.basename(cpath)
+                    norm_split = "train" if "train" in split_key.lower() else ("test" if "test" in split_key.lower() else "val")
+                    try:
+                        cdata = json.loads(zf.read(cpath).decode('utf-8', errors='ignore'))
+                    except Exception:
+                        continue
+
+                    for cat in cdata.get("categories", []):
+                        cid = cat.get("id")
+                        cname = cat.get("name")
+                        if cid is not None and cname:
+                            all_categories[cid] = cname
+                            if cname not in category_counts:
+                                category_counts[cname] = 0
+
+                    imgs = cdata.get("images", [])
+                    splits[norm_split] += len(imgs)
+                    total_images += len(imgs)
+
+                    for im in imgs:
+                        w = im.get("width")
+                        h = im.get("height")
+                        if w and h:
+                            widths.append(w)
+                            heights.append(h)
+
+                    anns = cdata.get("annotations", [])
+                    total_annotations += len(anns)
+                    for an in anns:
+                        cid = an.get("category_id")
+                        cname = all_categories.get(cid, f"class_{cid}")
+                        category_counts[cname] = category_counts.get(cname, 0) + 1
+                        if an.get("segmentation"):
+                            has_segmentation = True
+                        if an.get("bbox"):
+                            has_bbox = True
+                            bbox = an.get("bbox")
+                            if bbox and len(bbox) >= 4:
+                                try:
+                                    bw = round(float(bbox[2]))
+                                    bh = round(float(bbox[3]))
+                                    if bw > 0 and bh > 0:
+                                        if cname not in class_sizes:
+                                            class_sizes[cname] = {"min_width": bw, "min_height": bh, "max_width": bw, "max_height": bh}
+                                        else:
+                                            cs = class_sizes[cname]
+                                            cs["min_width"] = min(cs["min_width"], bw)
+                                            cs["min_height"] = min(cs["min_height"], bh)
+                                            cs["max_width"] = max(cs["max_width"], bw)
+                                            cs["max_height"] = max(cs["max_height"], bh)
+                                except Exception:
+                                    pass
+                        elif an.get("segmentation"):
+                            seg = an.get("segmentation")
+                            if isinstance(seg, list) and len(seg) > 0 and isinstance(seg[0], list):
+                                poly = seg[0]
+                                xs = poly[0::2]
+                                ys = poly[1::2]
+                                if xs and ys:
+                                    bw = round(max(xs) - min(xs))
+                                    bh = round(max(ys) - min(ys))
+                                    if bw > 0 and bh > 0:
+                                        if cname not in class_sizes:
+                                            class_sizes[cname] = {"min_width": bw, "min_height": bh, "max_width": bw, "max_height": bh}
+                                        else:
+                                            cs = class_sizes[cname]
+                                            cs["min_width"] = min(cs["min_width"], bw)
+                                            cs["min_height"] = min(cs["min_height"], bh)
+                                            cs["max_width"] = max(cs["max_width"], bw)
+                                            cs["max_height"] = max(cs["max_height"], bh)
+
+                classes_list = sorted(list(category_counts.keys()))
+                if not widths:
+                    widths, heights = [640], [640]
+
+                min_w, max_w = min(widths), max(widths)
+                min_h, max_h = min(heights), max(heights)
+                avg_w = round(sum(widths) / len(widths))
+                avg_h = round(sum(heights) / len(heights))
+
+                ann_types = []
+                if has_segmentation:
+                    ann_types.append("Polygon Masks (Instance Segmentation)")
+                if has_bbox:
+                    ann_types.append("Bounding Boxes (Object Detection)")
+                if not ann_types:
+                    ann_types.append("Annotations")
+
+                return {
+                    "name": os.path.basename(real_path),
+                    "storagePath": real_path,
+                    "fileSizeMB": size_mb,
+                    "format": "COCO Vision Format",
+                    "totalSamples": total_images,
+                    "totalAnnotations": total_annotations,
+                    "numClasses": len(classes_list),
+                    "classes": classes_list,
+                    "classDistribution": category_counts,
+                    "classSizes": class_sizes,
+                    "classInstanceSizes": class_sizes,
+                    "splits": splits,
+                    "imageResolution": {
+                        "min": {"width": min_w, "height": min_h},
+                        "max": {"width": max_w, "height": max_h},
+                        "avg": {"width": avg_w, "height": avg_h}
+                    },
+                    "aspectRatio": f"{avg_w}:{avg_h}",
+                    "annotationTypes": ann_types,
+                    "avgAnnotationsPerImage": round(total_annotations / max(1, total_images), 2)
+                }
+
+            # 2. Check for Image Classification directory layout in zip
+            img_files = [n for n in namelist if n.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp')) and not n.startswith('__MACOSX')]
+            if img_files:
+                class_folders = {}
+                splits = {"train": 0, "val": 0, "test": 0}
+                for n in img_files:
+                    p = [seg for seg in n.replace('\\', '/').split('/') if seg]
+                    split_name = "train"
+                    class_name = "unclassified"
+                    if len(p) >= 3 and p[-3].lower() in ['train', 'valid', 'val', 'test']:
+                        split_name = "train" if "train" in p[-3].lower() else ("test" if "test" in p[-3].lower() else "val")
+                        class_name = p[-2]
+                    elif len(p) >= 2:
+                        if p[-2].lower() in ['train', 'valid', 'val', 'test']:
+                            split_name = "train" if "train" in p[-2].lower() else ("test" if "test" in p[-2].lower() else "val")
+                            class_name = "sample"
+                        else:
+                            class_name = p[-2]
+                    splits[split_name] = splits.get(split_name, 0) + 1
+                    class_folders[class_name] = class_folders.get(class_name, 0) + 1
+
+                classes_list = sorted(list(class_folders.keys()))
+                widths, heights = [], []
+                for sample_img in img_files[:10]:
+                    try:
+                        with Image.open(io.BytesIO(zf.read(sample_img))) as im:
+                            widths.append(im.width)
+                            heights.append(im.height)
+                    except Exception:
+                        pass
+
+                if not widths:
+                    widths, heights = [224], [224]
+
+                min_w, max_w = min(widths), max(widths)
+                min_h, max_h = min(heights), max(heights)
+                avg_w = round(sum(widths) / len(widths))
+                avg_h = round(sum(heights) / len(heights))
+
+                class_sizes = {
+                    cname: {"min_width": min_w, "min_height": min_h, "max_width": max_w, "max_height": max_h}
+                    for cname in classes_list
+                }
+
+                total_imgs = len(img_files)
+                return {
+                    "name": os.path.basename(real_path),
+                    "storagePath": real_path,
+                    "fileSizeMB": size_mb,
+                    "format": "Image Classification Directory",
+                    "totalSamples": total_imgs,
+                    "totalAnnotations": total_imgs,
+                    "numClasses": len(classes_list),
+                    "classes": classes_list,
+                    "classDistribution": class_folders,
+                    "classSizes": class_sizes,
+                    "classInstanceSizes": class_sizes,
+                    "splits": splits,
+                    "imageResolution": {
+                        "min": {"width": min_w, "height": min_h},
+                        "max": {"width": max_w, "height": max_h},
+                        "avg": {"width": avg_w, "height": avg_h}
+                    },
+                    "aspectRatio": f"{avg_w}x{avg_h}",
+                    "annotationTypes": ["Class Labels (Single-Label Classification)"],
+                    "avgAnnotationsPerImage": 1.0
+                }
+
+            # 3. Check for Tabular / CSV in zip
+            csv_files = [n for n in namelist if n.lower().endswith(('.csv', '.tsv', '.parquet', '.xlsx')) and not n.startswith('__MACOSX')]
+            if csv_files:
+                import csv
+                main_csv = csv_files[0]
+                try:
+                    content = zf.read(main_csv).decode('utf-8', errors='ignore')
+                    reader = csv.reader(io.StringIO(content))
+                    header = next(reader, [])
+                    row_count = sum(1 for _ in reader)
+                    classes_list = [f"Col: {c.strip()}" for c in header[:10]]
+                    return {
+                        "name": os.path.basename(real_path),
+                        "storagePath": real_path,
+                        "fileSizeMB": size_mb,
+                        "format": "Tabular Dataset (CSV / Table)",
+                        "domain": "Tabular",
+                        "totalSamples": row_count or 1,
+                        "totalAnnotations": len(header),
+                        "numClasses": len(header),
+                        "classes": classes_list,
+                        "classDistribution": {c.strip(): row_count for c in header[:8]},
+                        "splits": {"train": int(row_count * 0.8), "val": int(row_count * 0.2), "test": 0},
+                        "imageResolution": {"min": {"width": 0, "height": 0}, "max": {"width": 0, "height": 0}, "avg": {"width": 0, "height": 0}},
+                        "aspectRatio": f"{len(header)} cols x {row_count} rows",
+                        "annotationTypes": ["Tabular Columns / Features"],
+                        "avgAnnotationsPerImage": float(len(header))
+                    }
+                except Exception:
+                    pass
+
+            # Fallback generic archive
+            return {
+                "name": os.path.basename(real_path),
+                "storagePath": real_path,
+                "fileSizeMB": size_mb,
+                "format": "archive",
+                "totalSamples": len(namelist),
+                "totalAnnotations": 0,
+                "numClasses": 0,
+                "classes": [],
+                "classDistribution": {},
+                "splits": {"train": len(namelist), "val": 0, "test": 0},
+                "imageResolution": {"min": {"width": 0, "height": 0}, "max": {"width": 0, "height": 0}, "avg": {"width": 0, "height": 0}},
+                "aspectRatio": "N/A",
+                "annotationTypes": ["Compressed File"],
+                "avgAnnotationsPerImage": 0.0
+            }
+    except Exception as e:
+        return {
+            "name": os.path.basename(real_path),
+            "storagePath": real_path,
+            "fileSizeMB": size_mb,
+            "format": "archive",
+            "totalSamples": 1,
+            "totalAnnotations": 0,
+            "numClasses": 0,
+            "classes": [],
+            "classDistribution": {},
+            "splits": {"train": 1, "val": 0, "test": 0},
+            "imageResolution": {"min": {"width": 0, "height": 0}, "max": {"width": 0, "height": 0}, "avg": {"width": 0, "height": 0}},
+            "aspectRatio": "N/A",
+            "annotationTypes": ["Compressed File"],
+            "avgAnnotationsPerImage": 0.0
+        }
 
 def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
     real_path = os.path.abspath(dataset_dir)
     if not os.path.exists(real_path):
         return {"error": f"Path not found: {dataset_dir}"}
 
-    # Detect if directory or zip archive - if archive, auto-extract to inspection folder
+    # Detect if directory or zip archive - if archive, inspect directly in memory without blocking disk extraction
     if os.path.isfile(real_path):
         if real_path.endswith('.zip') or zipfile.is_zipfile(real_path):
-            extract_to = str(Path(real_path).with_suffix('')) + "_extracted"
-            if not os.path.exists(extract_to) or not any(os.scandir(extract_to)):
-                os.makedirs(extract_to, exist_ok=True)
-                try:
-                    with zipfile.ZipFile(real_path, 'r') as zf:
-                        zf.extractall(extract_to)
-                except Exception as e:
-                    pass
-            if os.path.exists(extract_to) and any(os.scandir(extract_to)):
-                real_path = extract_to
-            else:
-                size_mb = round(os.path.getsize(real_path) / (1024 * 1024), 2)
-                return {
-                    "name": os.path.basename(real_path),
-                    "storagePath": real_path,
-                    "fileSizeMB": size_mb,
-                    "format": "archive",
-                    "totalSamples": 0,
-                    "totalAnnotations": 0,
-                    "numClasses": 0,
-                    "classes": [],
-                    "classDistribution": {},
-                    "splits": {"train": 0, "val": 0, "test": 0},
-                    "imageResolution": {
-                        "min": {"width": 0, "height": 0},
-                        "max": {"width": 0, "height": 0},
-                        "avg": {"width": 0, "height": 0}
-                    },
-                    "aspectRatio": "N/A",
-                    "annotationTypes": ["Compressed File"],
-                    "avgAnnotationsPerImage": 0.0
-                }
+            return analyze_zip_archive(real_path, domain)
         elif real_path.lower().endswith(('.csv', '.tsv', '.parquet', '.xlsx', '.xls')) or (domain and "tabular" in domain.lower()):
             # Analyze single tabular file directly
             size_mb = round(os.path.getsize(real_path) / (1024 * 1024), 2)
