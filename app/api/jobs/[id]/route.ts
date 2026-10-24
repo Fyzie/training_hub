@@ -36,10 +36,21 @@ export async function PATCH(
       const requestedById = body.requestedById;
       const userRole = body.userRole;
 
+      const allUsers = dataStore.getUsers();
+      const submitterStillExists = allUsers.some(
+        (u) => (job.submittedById && u.id === job.submittedById) ||
+               (job.submittedBy && u.name.trim().toLowerCase() === job.submittedBy.trim().toLowerCase())
+      );
+      const isExistingUser = allUsers.some(
+        (u) => (requestedById && u.id === requestedById) ||
+               (requestedBy && u.name.trim().toLowerCase() === requestedBy)
+      );
+
       const isOwner =
         (job.submittedById && requestedById && job.submittedById === requestedById) ||
         (job.submittedBy && requestedBy && job.submittedBy.trim().toLowerCase() === requestedBy) ||
-        userRole === 'Admin';
+        userRole === 'Admin' ||
+        (!submitterStillExists && isExistingUser);
 
       if (!isOwner) {
         return NextResponse.json(
@@ -78,10 +89,21 @@ export async function DELETE(
     const requestedById = url.searchParams.get('requestedById');
     const userRole = url.searchParams.get('userRole');
 
+    const allUsers = dataStore.getUsers();
+    const submitterStillExists = allUsers.some(
+      (u) => (job.submittedById && u.id === job.submittedById) ||
+             (job.submittedBy && u.name.trim().toLowerCase() === job.submittedBy.trim().toLowerCase())
+    );
+    const isExistingUser = allUsers.some(
+      (u) => (requestedById && u.id === requestedById) ||
+             (requestedBy && u.name.trim().toLowerCase() === requestedBy)
+    );
+
     const isOwner =
       (job.submittedById && requestedById && job.submittedById === requestedById) ||
       (job.submittedBy && requestedBy && job.submittedBy.trim().toLowerCase() === requestedBy) ||
-      userRole === 'Admin';
+      userRole === 'Admin' ||
+      (!submitterStillExists && isExistingUser);
 
     if (!isOwner) {
       return NextResponse.json(

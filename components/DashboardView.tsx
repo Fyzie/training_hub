@@ -360,7 +360,7 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
               <div className="flex justify-between items-start py-1 gap-2">
                 <span className="text-slate-400 shrink-0">Storage Array</span>
                 <span className="font-bold text-slate-800 text-right text-[11px] sm:text-xs">
-                  {metrics?.specs?.storageArray || (metrics?.disk?.totalGB ? `${metrics.disk.totalGB >= 900 ? '1 TB' : `${metrics.disk.totalGB} GB`} SSD` : 'Detecting Storage...')}
+                  {metrics?.specs?.storageArray || (metrics?.disk?.totalGB ? `${metrics.disk.totalGB >= 900 ? '1 TB' : `${metrics.disk.totalGB} GB`} SSD (${metrics.disk.freeGB} GB Free)` : 'Detecting Storage...')}
                 </span>
               </div>
             </div>

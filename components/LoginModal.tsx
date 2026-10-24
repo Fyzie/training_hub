@@ -317,7 +317,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 ? 'Set a new strong password for your workstation account'
                 : allUsers.length === 0
                 ? 'Register the first account to set up your workspace'
-                : 'Sign in to access model training, hardware & documents'}
+                : 'Sign in to access whole workspace'}
             </p>
           </div>
           {allUsers.length > 0 && (

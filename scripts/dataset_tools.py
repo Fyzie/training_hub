@@ -59,6 +59,52 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
                     "annotationTypes": ["Compressed File"],
                     "avgAnnotationsPerImage": 0.0
                 }
+        elif real_path.lower().endswith(('.csv', '.tsv', '.parquet', '.xlsx', '.xls')) or (domain and "tabular" in domain.lower()):
+            # Analyze single tabular file directly
+            size_mb = round(os.path.getsize(real_path) / (1024 * 1024), 2)
+            try:
+                import csv
+                with open(real_path, "r", encoding="utf-8", errors="ignore") as f:
+                    reader = csv.reader(f)
+                    header = next(reader, [])
+                    row_count = sum(1 for _ in reader)
+                classes_list = [f"Col: {c.strip()}" for c in header[:10]]
+                return {
+                    "name": os.path.basename(real_path),
+                    "storagePath": real_path,
+                    "fileSizeMB": size_mb,
+                    "format": "Tabular Dataset (CSV / Table)",
+                    "domain": "Tabular",
+                    "totalSamples": row_count or 1,
+                    "totalAnnotations": len(header),
+                    "numClasses": len(header),
+                    "classes": classes_list,
+                    "classDistribution": {c.strip(): row_count for c in header[:8]},
+                    "splits": {"train": int(row_count * 0.8), "val": int(row_count * 0.2), "test": 0},
+                    "imageResolution": {"min": {"width": 0, "height": 0}, "max": {"width": 0, "height": 0}, "avg": {"width": 0, "height": 0}},
+                    "aspectRatio": f"{len(header)} cols x {row_count} rows",
+                    "annotationTypes": ["Tabular Columns / Features"],
+                    "avgAnnotationsPerImage": float(len(header))
+                }
+            except Exception:
+                pass
+            return {
+                "name": os.path.basename(real_path),
+                "storagePath": real_path,
+                "fileSizeMB": size_mb,
+                "format": "Tabular Dataset (CSV / Table)",
+                "domain": "Tabular",
+                "totalSamples": 1,
+                "totalAnnotations": 0,
+                "numClasses": 0,
+                "classes": ["Feature_1", "Feature_2"],
+                "classDistribution": {},
+                "splits": {"train": 1, "val": 0, "test": 0},
+                "imageResolution": {"min": {"width": 0, "height": 0}, "max": {"width": 0, "height": 0}, "avg": {"width": 0, "height": 0}},
+                "aspectRatio": "Tabular Data",
+                "annotationTypes": ["Tabular Columns"],
+                "avgAnnotationsPerImage": 0.0
+            }
         else:
             size_mb = round(os.path.getsize(real_path) / (1024 * 1024), 2)
             return {
@@ -345,6 +391,30 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
                                 pass
         if class_folders:
             break
+
+    if not class_folders:
+        for base_d in candidate_clf_dirs:
+            try:
+                sub_entries = [e for e in os.listdir(base_d) if os.path.isdir(os.path.join(base_d, e)) and not e.startswith('.')]
+                sub_entries = [e for e in sub_entries if e.lower() not in ['train', 'valid', 'val', 'test', 'annotations', 'images', 'labels', 'metadata', '__pycache__']]
+                for cname in sub_entries:
+                    cdir = os.path.join(base_d, cname)
+                    img_files = [f for f in os.listdir(cdir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
+                    if img_files:
+                        splits["train"] += len(img_files)
+                        class_folders[cname] = len(img_files)
+                        for sample_f in img_files[:20]:
+                            try:
+                                with Image.open(os.path.join(cdir, sample_f)) as im:
+                                    widths.append(im.width)
+                                    heights.append(im.height)
+                            except Exception:
+                                pass
+                if class_folders:
+                    splits["val"] = max(1, int(len(img_files) * 0.2))
+                    break
+            except Exception:
+                pass
 
     if class_folders:
         classes_list = sorted(list(class_folders.keys()))

@@ -4,7 +4,7 @@ import { Dataset } from '@/lib/types';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
-import { UPLOADS_DIR, ensureStorageHub, scanDatasetClasses } from '@/lib/storage';
+import { UPLOADS_DIR, ensureStorageHub, scanDatasetClasses, resolveHostDatasetDir } from '@/lib/storage';
 import { getHostPythonExe } from '@/lib/python-runtime';
 
 const UPLOAD_DIR = path.join(UPLOADS_DIR, 'datasets');
@@ -72,6 +72,44 @@ function runPythonRoboflow(snippet: string): Promise<any> {
   });
 }
 
+function runDatasetAnalysis(diskPath: string, domain?: string): Promise<any> {
+  return new Promise((resolve) => {
+    try {
+      const pythonExe = getHostPythonExe();
+      const scriptPath = path.join(process.cwd(), 'scripts', 'dataset_tools.py');
+      const args = [scriptPath, '--action', 'analyze', '--dataset_dir', diskPath];
+      if (domain) {
+        args.push('--domain', domain);
+      }
+      const child = spawn(pythonExe, args);
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('close', (code) => {
+        if (code === 0) {
+          const match = stdout.match(/__DATASET_JSON_START__([\s\S]*?)__DATASET_JSON_END__/);
+          if (match) {
+            try {
+              return resolve(JSON.parse(match[1].trim()));
+            } catch {}
+          }
+          const firstOpen = stdout.indexOf('{');
+          const lastClose = stdout.lastIndexOf('}');
+          if (firstOpen !== -1 && lastClose > firstOpen) {
+            try {
+              return resolve(JSON.parse(stdout.slice(firstOpen, lastClose + 1)));
+            } catch {}
+          }
+        }
+        resolve(null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get('content-type') || '';
@@ -93,7 +131,7 @@ export async function POST(request: Request) {
             id: `ds-${Date.now().toString(36)}`,
             name: name.trim() || rfRes.name,
             category: 'vision',
-            domain,
+            domain: 'Instance Segmentation / Object Detection',
             description: description.trim() || `Imported from Roboflow (${rfRes.project} v${rfRes.version})`,
             format: 'coco',
             fileSizeMB: rfRes.fileSizeMB || 10,
@@ -113,6 +151,7 @@ export async function POST(request: Request) {
       }
 
       let filePath = '';
+      let destPath = '';
       let fileSizeMB = 10;
 
       if (file && file.size) {
@@ -121,30 +160,81 @@ export async function POST(request: Request) {
         }
         const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
         const buffer = Buffer.from(await file.arrayBuffer());
-        const destPath = path.join(UPLOAD_DIR, safeName);
+        destPath = path.join(UPLOAD_DIR, safeName);
         fs.writeFileSync(destPath, buffer);
         filePath = `/uploads/datasets/${safeName}`;
         fileSizeMB = Math.round((file.size / (1024 * 1024)) * 10) / 10;
       }
 
-      // Automatically scan uploaded archive or directory for real class names
-      const detectedClasses = filePath ? scanDatasetClasses(filePath) : [];
-      const finalClasses = (detectedClasses && detectedClasses.length > 0) ? detectedClasses : ['defect', 'background'];
+      let resolvedFormat: 'coco' | 'images_folder' | 'csv' | 'yolo' = domain === 'Image Classification' ? 'images_folder' : (domain === 'Tabular' ? 'csv' : 'coco');
+      let resolvedDomain = domain || 'Instance Segmentation / Object Detection';
+      let resolvedCategory = category || (domain === 'Tabular' ? 'tabular' : 'vision');
+      let resolvedClasses: string[] = [];
+      let resolvedSamples = 1000;
+      let resolvedSplits: { train: number; val: number; test?: number } = { train: 800, val: 200 };
+
+      if (destPath && fs.existsSync(destPath)) {
+        const analysis = await runDatasetAnalysis(destPath, domain);
+        if (analysis) {
+          if (analysis.classes && Array.isArray(analysis.classes) && analysis.classes.length > 0) {
+            resolvedClasses = analysis.classes;
+          }
+          if (analysis.totalSamples) {
+            resolvedSamples = analysis.totalSamples;
+          }
+          if (analysis.splits) {
+            resolvedSplits = analysis.splits;
+          }
+          if (analysis.fileSizeMB) {
+            fileSizeMB = analysis.fileSizeMB;
+          }
+          if (analysis.format === 'Image Classification Directory' || (domain && domain.includes('Classification'))) {
+            resolvedFormat = 'images_folder';
+            resolvedDomain = 'Image Classification';
+            resolvedCategory = 'vision';
+          } else if (analysis.format?.includes('Tabular') || (domain && domain.includes('Tabular'))) {
+            resolvedFormat = 'csv';
+            resolvedDomain = 'Tabular';
+            resolvedCategory = 'tabular';
+          } else if (analysis.format === 'COCO Vision Format' || (domain && domain.includes('Instance Segmentation'))) {
+            resolvedFormat = 'coco';
+            resolvedDomain = 'Instance Segmentation / Object Detection';
+            resolvedCategory = 'vision';
+          }
+        }
+      }
+
+      // Automatically scan uploaded archive or directory for real class names if still needed
+      if (resolvedClasses.length === 0) {
+        const detectedClasses = filePath ? scanDatasetClasses(filePath) : [];
+        if (detectedClasses && detectedClasses.length > 0) {
+          resolvedClasses = detectedClasses;
+        } else if (resolvedDomain === 'Image Classification') {
+          resolvedClasses = ['class_a', 'class_b'];
+          resolvedFormat = 'images_folder';
+        } else if (resolvedDomain === 'Tabular') {
+          resolvedClasses = ['feature_1', 'feature_2'];
+          resolvedFormat = 'csv';
+        } else {
+          resolvedClasses = ['defect', 'background'];
+          resolvedFormat = 'coco';
+        }
+      }
 
       const newDataset: Dataset = {
         id: `ds-${Date.now().toString(36)}`,
-        name: name || 'Custom Dataset',
-        category,
-        domain,
+        name: name || (file ? file.name.replace(/\.[^/.]+$/, '') : 'Custom Dataset'),
+        category: resolvedCategory,
+        domain: resolvedDomain,
         description,
-        format: 'coco',
+        format: resolvedFormat,
         fileSizeMB: fileSizeMB || 15,
-        sampleCount: 1000,
+        sampleCount: resolvedSamples,
         uploadedBy,
         uploadedAt: new Date().toISOString(),
         filePath,
-        classes: finalClasses,
-        splits: { train: 800, val: 200 }
+        classes: resolvedClasses,
+        splits: resolvedSplits
       };
 
       dataStore.addDataset(newDataset);
@@ -160,7 +250,7 @@ export async function POST(request: Request) {
             id: `ds-${Date.now().toString(36)}`,
             name: body.name?.trim() || rfRes.name,
             category: 'vision',
-            domain,
+            domain: 'Instance Segmentation / Object Detection',
             description: body.description?.trim() || `Imported from Roboflow (${rfRes.project} v${rfRes.version})`,
             format: 'coco',
             fileSizeMB: rfRes.fileSizeMB || 10,
@@ -179,18 +269,43 @@ export async function POST(request: Request) {
         }
       }
 
-      const jsonDetectedClasses = body.filePath ? scanDatasetClasses(body.filePath) : [];
-      const jsonClasses = (body.classes && Array.isArray(body.classes) && body.classes.length > 0 && !(body.classes.length === 1 && body.classes[0] === 'object'))
-        ? body.classes
-        : ((jsonDetectedClasses && jsonDetectedClasses.length > 0) ? jsonDetectedClasses : ['defect', 'background']);
+      let jsonFormat: 'coco' | 'images_folder' | 'csv' | 'yolo' = domain === 'Image Classification' ? 'images_folder' : (domain === 'Tabular' ? 'csv' : 'coco');
+      let jsonDomain = domain;
+      let jsonClasses = body.classes && Array.isArray(body.classes) && body.classes.length > 0 ? body.classes : [];
+
+      if (body.filePath) {
+        let absPath = resolveHostDatasetDir(body.filePath);
+        if (absPath && fs.existsSync(absPath)) {
+          const analysis = await runDatasetAnalysis(absPath, domain);
+          if (analysis) {
+            if (analysis.classes && Array.isArray(analysis.classes) && analysis.classes.length > 0) {
+              jsonClasses = analysis.classes;
+            }
+            if (analysis.format === 'Image Classification Directory' || domain.includes('Classification')) {
+              jsonFormat = 'images_folder';
+              jsonDomain = 'Image Classification';
+            } else if (analysis.format?.includes('Tabular') || domain.includes('Tabular')) {
+              jsonFormat = 'csv';
+              jsonDomain = 'Tabular';
+            }
+          }
+        }
+      }
+
+      if (jsonClasses.length === 0) {
+        const jsonDetectedClasses = body.filePath ? scanDatasetClasses(body.filePath) : [];
+        jsonClasses = (jsonDetectedClasses && jsonDetectedClasses.length > 0)
+          ? jsonDetectedClasses
+          : (jsonDomain === 'Image Classification' ? ['class_a', 'class_b'] : ['defect', 'background']);
+      }
 
       const newDataset: Dataset = {
         id: `ds-${Date.now().toString(36)}`,
         name: body.name || 'New Dataset',
-        category: body.category || 'vision',
-        domain,
+        category: body.category || (jsonDomain === 'Tabular' ? 'tabular' : 'vision'),
+        domain: jsonDomain,
         description: body.description || '',
-        format: 'coco',
+        format: jsonFormat,
         fileSizeMB: body.fileSizeMB || 50,
         sampleCount: body.sampleCount || 1000,
         uploadedBy: body.uploadedBy || 'ML Engineer',

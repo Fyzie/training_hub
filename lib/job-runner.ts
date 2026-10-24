@@ -5,7 +5,7 @@ import { dataStore } from './data-store';
 import { TrainingJob, TrainingMetricPoint } from './types';
 import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir, unzipDatasetArchiveAsync, scanDatasetClasses } from './storage';
 import { getHostPythonExe } from './python-runtime';
-import { sendEmail } from './email';
+import { sendEmail, getEnvHubConfig } from './email';
 
 class JobScheduler {
   private timer: NodeJS.Timeout | null = null;
@@ -386,25 +386,56 @@ class JobScheduler {
                (job.submittedById && u.id === job.submittedById)
       );
       if (targetUser && targetUser.email) {
+        const env = getEnvHubConfig();
+        let baseUrl = env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || '';
+        if (!baseUrl) {
+          try {
+            const tunnelPath = path.join(process.cwd(), '..', 'storage-hub', 'data', 'tunnel.json');
+            if (fs.existsSync(tunnelPath)) {
+              const tunnelData = JSON.parse(fs.readFileSync(tunnelPath, 'utf8'));
+              if (tunnelData.tunnelUrl && tunnelData.isActive) {
+                baseUrl = tunnelData.tunnelUrl;
+              }
+            }
+          } catch {}
+        }
+        if (!baseUrl) {
+          baseUrl = 'https://hub.hafizimalik.com';
+        }
+        baseUrl = baseUrl.replace(/\/$/, '');
+        const workspaceUrl = `${baseUrl}/?tab=training&job=${job.id}`;
+
         sendEmail({
           to: targetUser.email,
           subject: `[IRnow Workspace] Training Completed: ${job.name}`,
           html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
                 <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981;"></span>
-                <span style="font-size: 11px; font-weight: bold; text-transform: uppercase; color: #64748b;">Training Status Alert</span>
+                <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #10b981;">Training Status Alert</span>
               </div>
-              <h2 style="color: #0f172a; margin-top: 0;">Training Run Finished!</h2>
+              <h2 style="color: #0f172a; margin-top: 0; font-size: 20px; font-weight: 800;">Training Run Finished!</h2>
               <p style="color: #475569; font-size: 14px; line-height: 1.6;">Hello <strong>${targetUser.name}</strong>,</p>
               <p style="color: #475569; font-size: 14px; line-height: 1.6;">Your model training run for <strong>${job.name}</strong> (${job.taskType}) has completed all <strong>${job.totalEpochs}</strong> epochs successfully.</p>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
-                <p style="margin: 4px 0; font-size: 13px;"><strong>Dataset:</strong> ${job.datasetName}</p>
+              
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 20px; margin: 20px 0;">
+                <p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Experiment:</strong> ${job.name}</p>
+                <p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Architecture:</strong> ${job.hyperparameters?.model_architecture || job.taskType}</p>
+                <p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Dataset:</strong> ${job.datasetName}</p>
+                ${typeof job.mAP50 === 'number' ? `<p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Final mAP@50:</strong> ${(job.mAP50 * 100).toFixed(1)}%</p>` : ''}
               </div>
-              <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Workspace workstation.</p>
+
+              <!-- Go to Workspace Button -->
+              <div style="margin: 28px 0; text-align: center;">
+                <a href="${workspaceUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 13px 32px; border-radius: 9999px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);">
+                  Go to Workspace →
+                </a>
+              </div>
+
+              <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">You can view the full confusion matrix, validation predictions comparison, and download the weights checkpoint directly on IRnow Workspace.</p>
             </div>
           `,
-          text: `Training completed for ${job.name}.`
+          text: `Training completed for ${job.name}. View in workspace: ${workspaceUrl}`
         }).then((r) => {
           if (r.success) {
             console.log(`[Email] Dispatched training completion alert to ${targetUser.email}`);

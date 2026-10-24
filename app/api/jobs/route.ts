@@ -19,6 +19,38 @@ export async function POST(request: Request) {
 
     const datasets = dataStore.getDatasets();
     const dataset = datasets.find((d) => d.id === body.datasetId);
+
+    if (dataset) {
+      const isDetOrSeg = body.taskType?.includes('RF-DETR') || body.taskType?.includes('YOLO') || body.taskType?.includes('Detection') || body.taskType?.includes('Segmentation');
+      const isClassif = body.taskType?.includes('Classification');
+
+      if (isDetOrSeg) {
+        if (dataset.domain === 'Image Classification' || dataset.format === 'images_folder') {
+          return NextResponse.json({
+            error: `Incompatible dataset: "${dataset.name}" is formatted for Image Classification, but this template requires Instance Segmentation / Object Detection (COCO/YOLO format with bounding boxes/masks).`
+          }, { status: 400 });
+        }
+        if (dataset.domain === 'Tabular' || dataset.format === 'csv') {
+          return NextResponse.json({
+            error: `Incompatible dataset: "${dataset.name}" is a Tabular dataset, which cannot be used with vision object detection or segmentation templates.`
+          }, { status: 400 });
+        }
+      }
+
+      if (isClassif) {
+        if (dataset.domain === 'Instance Segmentation / Object Detection' || dataset.format === 'coco' || dataset.format === 'yolo') {
+          return NextResponse.json({
+            error: `Incompatible dataset: "${dataset.name}" is formatted for Object Detection/Segmentation, but MobileNetV4 Image Classification requires folder hierarchy dataset with class subfolders.`
+          }, { status: 400 });
+        }
+        if (dataset.domain === 'Tabular' || dataset.format === 'csv') {
+          return NextResponse.json({
+            error: `Incompatible dataset: "${dataset.name}" is a Tabular dataset, which cannot be used with image classification.`
+          }, { status: 400 });
+        }
+      }
+    }
+
     const realGpu = getRealGpuDeviceString();
     const targetDevice = body.device || 'cuda:0';
 

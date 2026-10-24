@@ -24,7 +24,10 @@ import {
   Users,
   Trash2,
   Shield,
-  Pencil
+  Pencil,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { EditProfileModal } from './EditProfileModal';
 
@@ -52,6 +55,8 @@ export function Navbar({
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUsersModal, setShowUsersModal] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userPage, setUserPage] = useState(1);
   const [pendingLevels, setPendingLevels] = useState<Record<string, 'Admin' | 'Guest'>>({});
   const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -754,136 +759,219 @@ export function Navbar({
       </aside>
 
       {/* Users Management Modal (Admin Only) */}
-      {showUsersModal && user?.level === 'Admin' && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-3xl p-5 sm:p-7 max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shadow-xs">
-                  <Users className="w-5 h-5" />
+      {showUsersModal && user?.level === 'Admin' && (() => {
+        const filteredUsers = allUsers.filter((u) => {
+          if (!userSearchQuery.trim()) return true;
+          const q = userSearchQuery.toLowerCase();
+          return (
+            (u.name && u.name.toLowerCase().includes(q)) ||
+            (u.email && u.email.toLowerCase().includes(q)) ||
+            (u.role && u.role.toLowerCase().includes(q)) ||
+            (u.level && u.level.toLowerCase().includes(q)) ||
+            (u.department && u.department.toLowerCase().includes(q))
+          );
+        });
+        const USERS_PER_PAGE = 5;
+        const totalUserPages = Math.ceil(filteredUsers.length / USERS_PER_PAGE) || 1;
+        const currentPage = Math.min(userPage, totalUserPages);
+        const pagedUsers = filteredUsers.slice((currentPage - 1) * USERS_PER_PAGE, currentPage * USERS_PER_PAGE);
+
+        return (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white rounded-3xl p-5 sm:p-7 max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shadow-xs">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
+                      <span>Registered Team Users</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-extrabold">
+                        {allUsers.length}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Manage team accounts, view member roles, and adjust Admin or Guest permissions.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
-                    <span>Registered Team Users</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-extrabold">
-                      {allUsers.length}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Manage team accounts, view member roles, and adjust Admin or Guest permissions.
-                  </p>
+                <button
+                  onClick={() => setShowUsersModal(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <div className="pt-3 pb-1 shrink-0">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search registered team members by name, email, or role..."
+                    value={userSearchQuery}
+                    onChange={(e) => {
+                      setUserSearchQuery(e.target.value);
+                      setUserPage(1);
+                    }}
+                    className="w-full pl-9 pr-8 py-2 rounded-2xl border border-slate-200 text-xs bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400"
+                  />
+                  {userSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserSearchQuery('');
+                        setUserPage(1);
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
-              <button
-                onClick={() => setShowUsersModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            {/* Users List */}
-            <div className="overflow-y-auto py-3 space-y-2.5 flex-1 pr-1">
-              {allUsers.map((u) => {
-                const isCurrent = u.id === user.id;
-                const isAdmin = u.level === 'Admin';
-                const adminCount = allUsers.filter((x) => x.level === 'Admin').length;
-                const cannotDelete = isCurrent && adminCount <= 1;
-
-                return (
-                  <div
-                    key={u.id}
-                    className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      {u.avatar ? (
-                        <img src={u.avatar} alt={u.name} className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200" />
-                      ) : (
-                        <div className="w-9 h-9 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center uppercase shadow-xs">
-                          {getInitials(u.name)}
-                        </div>
-                      )}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-sm text-slate-900">{u.name}</span>
-                          {isCurrent && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-blue-100 text-blue-700">
-                              You
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500">{u.email} • {u.role}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 justify-between sm:justify-end">
-                      {/* Registered Role Badge */}
-                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-slate-200/70 text-slate-700">
-                        {u.role || 'General'}
-                      </span>
-
-                      {/* Level Dropdown */}
-                      <select
-                        value={u.level || 'Guest'}
-                        onChange={async (e) => {
-                          const newLevel = e.target.value as 'Admin' | 'Guest';
-                          const res = await updateUserLevel(u.id, newLevel);
-                          if (!res.success) alert(res.error || 'Failed to update level');
-                        }}
-                        className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border cursor-pointer outline-none transition-all ${
-                          isAdmin
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-400/20'
-                            : 'bg-white text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        <option value="Admin">Admin</option>
-                        <option value="Guest">Guest</option>
-                      </select>
-
-                      {/* Delete User Button */}
-                      <button
-                        onClick={async () => {
-                          if (cannotDelete) {
-                            alert('Cannot remove the only Admin account on the workstation.');
-                            return;
-                          }
-                          if (!confirm(`Are you sure you want to permanently delete user "${u.name}"?`)) return;
-                          setIsDeletingUser(u.id);
-                          const res = await deleteUser(u.id);
-                          setIsDeletingUser(null);
-                          if (!res.success) {
-                            alert(res.error || 'Failed to remove user');
-                          }
-                        }}
-                        disabled={isDeletingUser === u.id || cannotDelete}
-                        title={cannotDelete ? 'Cannot delete the only Admin' : 'Remove User'}
-                        className="w-8 h-8 rounded-xl bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 flex items-center justify-center transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+              {/* Users List (max 5 items shown per page) */}
+              <div className="overflow-y-auto py-2.5 space-y-2.5 flex-1 pr-1 min-h-[220px]">
+                {pagedUsers.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    No registered users match &quot;{userSearchQuery}&quot;
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  pagedUsers.map((u) => {
+                    const isCurrent = u.id === user.id;
+                    const isAdmin = u.level === 'Admin';
+                    const adminCount = allUsers.filter((x) => x.level === 'Admin').length;
+                    const cannotDelete = isCurrent && adminCount <= 1;
 
-            {/* Footer */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-blue-600" />
-                <span>Only Admin level users can manage team accounts and permissions.</span>
-              </span>
-              <button
-                onClick={() => setShowUsersModal(false)}
-                className="px-4 py-2 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 cursor-pointer"
-              >
-                Close
-              </button>
+                    return (
+                      <div
+                        key={u.id}
+                        className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          {u.avatar ? (
+                            <img src={u.avatar} alt={u.name} className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center uppercase shadow-xs">
+                              {getInitials(u.name)}
+                            </div>
+                          )}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-sm text-slate-900">{u.name}</span>
+                              {isCurrent && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-blue-100 text-blue-700">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500">{u.email} • {u.role}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 justify-between sm:justify-end">
+                          {/* Registered Role Badge */}
+                          <span className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-slate-200/70 text-slate-700">
+                            {u.role || 'General'}
+                          </span>
+
+                          {/* Level Dropdown */}
+                          <select
+                            value={u.level || 'Guest'}
+                            onChange={async (e) => {
+                              const newLevel = e.target.value as 'Admin' | 'Guest';
+                              const res = await updateUserLevel(u.id, newLevel);
+                              if (!res.success) alert(res.error || 'Failed to update level');
+                            }}
+                            className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border cursor-pointer outline-none transition-all ${
+                              isAdmin
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-400/20'
+                                : 'bg-white text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            <option value="Admin">Admin</option>
+                            <option value="Guest">Guest</option>
+                          </select>
+
+                          {/* Delete User Button */}
+                          <button
+                            onClick={async () => {
+                              if (cannotDelete) {
+                                alert('Cannot remove the only Admin account on the workstation.');
+                                return;
+                              }
+                              if (!confirm(`Are you sure you want to permanently delete user "${u.name}"?`)) return;
+                              setIsDeletingUser(u.id);
+                              const res = await deleteUser(u.id);
+                              setIsDeletingUser(null);
+                              if (!res.success) {
+                                alert(res.error || 'Failed to remove user');
+                              }
+                            }}
+                            disabled={isDeletingUser === u.id || cannotDelete}
+                            title={cannotDelete ? 'Cannot delete the only Admin' : 'Remove User'}
+                            className="w-8 h-8 rounded-xl bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 flex items-center justify-center transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Range Button Pagination Controls */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs shrink-0">
+                <span className="text-slate-400 font-medium">
+                  Showing {filteredUsers.length === 0 ? 0 : (currentPage - 1) * USERS_PER_PAGE + 1} - {Math.min(filteredUsers.length, currentPage * USERS_PER_PAGE)} of {filteredUsers.length} users
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setUserPage((p) => Math.max(1, p - 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs transition-colors"
+                    title="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-slate-700" />
+                  </button>
+                  <span className="font-extrabold text-slate-800 px-2 select-none">
+                    {currentPage} out of {totalUserPages} pages
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalUserPages}
+                    onClick={() => setUserPage((p) => Math.min(totalUserPages, p + 1))}
+                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 cursor-pointer shadow-xs transition-colors"
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 shrink-0">
+                <span className="flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Only Admin level users can manage team accounts and permissions.</span>
+                </span>
+                <button
+                  onClick={() => setShowUsersModal(false)}
+                  className="px-4 py-2 rounded-full bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Edit Profile Modal */}
       <EditProfileModal

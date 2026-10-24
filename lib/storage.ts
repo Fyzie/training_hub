@@ -211,8 +211,11 @@ export function scanDatasetClasses(rawPath: string): string[] {
     let targetDir = resolved;
     if (fs.statSync(targetDir).isFile()) {
       const extracted = targetDir.replace(/\.zip$/i, '');
+      const extracted2 = `${targetDir}_extracted`;
       if (fs.existsSync(extracted) && fs.statSync(extracted).isDirectory()) {
         targetDir = extracted;
+      } else if (fs.existsSync(extracted2) && fs.statSync(extracted2).isDirectory()) {
+        targetDir = extracted2;
       }
     }
 
@@ -295,6 +298,25 @@ export function scanDatasetClasses(rawPath: string): string[] {
           } catch {}
         }
       }
+    }
+
+    // 3. Check direct class subfolders (e.g. without train/valid wrapper)
+    for (const base of searchDirs) {
+      try {
+        const subEntries = fs.readdirSync(base);
+        const directClasses: string[] = [];
+        for (const sub of subEntries) {
+          if (sub.startsWith('.') || ['train', 'valid', 'val', 'test', 'annotations', 'images', 'labels'].includes(sub.toLowerCase())) continue;
+          const classDir = path.join(base, sub);
+          if (fs.existsSync(classDir) && fs.statSync(classDir).isDirectory()) {
+            const hasImages = fs.readdirSync(classDir).some(f => /\.(jpg|jpeg|png|webp|bmp)$/i.test(f));
+            if (hasImages) {
+              directClasses.push(sub.trim());
+            }
+          }
+        }
+        if (directClasses.length > 0) return directClasses.sort();
+      } catch {}
     }
   } catch (err) {
     console.error('scanDatasetClasses error:', err);

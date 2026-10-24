@@ -60,7 +60,7 @@ function MainApp() {
 
       {/* Main Content Area */}
       <main className="flex-1 w-full px-3 sm:px-6 xl:px-12 py-4 sm:py-6 pb-6">
-        {activeTab === 'dashboard' && (
+        <div className={activeTab === 'dashboard' ? 'block' : 'hidden'}>
           <DashboardView
             onNavigateTab={(tab) => {
               if (!user) {
@@ -74,13 +74,25 @@ function MainApp() {
             }}
             onOpenLogin={() => setShowLoginModal(true)}
           />
+        </div>
+
+        {user && (
+          <div className={activeTab === 'training' ? 'block' : 'hidden'}>
+            <TrainingView />
+          </div>
         )}
 
-        {user && activeTab === 'training' && <TrainingView />}
+        {user && (
+          <div className={activeTab === 'inventory' ? 'block' : 'hidden'}>
+            <InventoryView />
+          </div>
+        )}
 
-        {user && activeTab === 'inventory' && <InventoryView />}
-
-        {user && activeTab === 'blog' && <BlogView />}
+        {user && (
+          <div className={activeTab === 'blog' ? 'block' : 'hidden'}>
+            <BlogView />
+          </div>
+        )}
 
         {user && activeTab === 'network' && (
           <TunnelModal

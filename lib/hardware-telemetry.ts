@@ -168,8 +168,8 @@ function getDiskMetrics() {
   try {
     const stat = fs.statfsSync('.');
     const totalGB = Math.round((stat.bsize * stat.blocks) / (1024 * 1024 * 1024));
-    const freeGB = Math.round((stat.bsize * stat.bfree) / (1024 * 1024 * 1024));
-    const usedGB = totalGB - freeGB;
+    const freeGB = Math.round(((stat.bsize * stat.bfree) / (1024 * 1024 * 1024)) * 10) / 10;
+    const usedGB = Math.round((totalGB - freeGB) * 10) / 10;
     const usagePercent = totalGB > 0 ? Math.round((usedGB / totalGB) * 100) : 48;
     return { totalGB, freeGB, usedGB, usagePercent };
   } catch {
@@ -179,8 +179,16 @@ function getDiskMetrics() {
 
 function extractRealHardwareSpecs(gpuName: string, gpuMemMB: number, totalDiskGB: number, freeDiskGB: number) {
   const now = Date.now();
+  const root = path.parse(process.cwd()).root;
+  const driveLetter = root.replace(/[^a-zA-Z]/g, '').toUpperCase() || 'D';
+  const capacityStr = totalDiskGB >= 900 ? `${Math.round(totalDiskGB / 1000)} TB SSD` : `${totalDiskGB} GB SSD`;
+  const storageArray = `Local Disk (${driveLetter}:) - ${capacityStr} (${freeDiskGB} GB Free)`;
+
   if (cachedHardwareSpecs && now - lastSpecsTime < 300000) {
-    return cachedHardwareSpecs;
+    return {
+      ...cachedHardwareSpecs,
+      storageArray
+    };
   }
 
   // 1. Host Processor (CPU)
@@ -212,12 +220,6 @@ function extractRealHardwareSpecs(gpuName: string, gpuMemMB: number, totalDiskGB
     else if (out === '24') memType = ' DDR3';
   } catch {}
   const systemMemory = `${totalRamGB} GB${memType || ' RAM'}`;
-
-  // 4. Storage Array (Active local drive where the codebase is installed)
-  const root = path.parse(process.cwd()).root;
-  const driveLetter = root.replace(/[^a-zA-Z]/g, '').toUpperCase() || 'D';
-  const capacityStr = totalDiskGB >= 900 ? `${Math.round(totalDiskGB / 1000)} TB` : `${totalDiskGB} GB`;
-  const storageArray = `Local Disk (${driveLetter}:) - ${capacityStr} (${freeDiskGB} GB Free)`;
 
   cachedHardwareSpecs = {
     gpuArchitecture,
