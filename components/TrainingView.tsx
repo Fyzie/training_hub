@@ -840,86 +840,111 @@ dataset = version.download("coco")`
           return;
         }
 
+        const CHUNK_SIZE = 25 * 1024 * 1024; // 25 MB chunks (bypasses Cloudflare 100MB per-request limit)
+        const totalSize = uploadFile.size;
+        const totalChunks = Math.max(1, Math.ceil(totalSize / CHUNK_SIZE));
+        const uploadSessionId = `up-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         const safeFileName = (uploadFile.name || 'dataset.zip').trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
-        const formData = new FormData();
-        formData.append('name', datasetName);
-        formData.append('category', datasetForm.category);
-        formData.append('domain', datasetForm.domain);
-        formData.append('description', datasetForm.description);
-        formData.append('uploadedBy', userName);
-        formData.append('file', uploadFile, safeFileName);
+        const totalMb = (totalSize / (1024 * 1024)).toFixed(1);
 
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/datasets');
+        let finalDataset: Dataset | null = null;
 
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable && event.total > 0) {
-              const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
-              const loadedMb = (event.loaded / (1024 * 1024)).toFixed(1);
-              const totalMb = (event.total / (1024 * 1024)).toFixed(1);
-              setDatasets((prev) =>
-                prev.map((d) =>
-                  d.id === optimisticId
-                    ? {
-                        ...d,
-                        uploadProgress: percent,
-                        uploadStatusText: `Uploading: ${percent}% (${loadedMb}MB / ${totalMb}MB)`
-                      }
-                    : d
-                )
-              );
-            }
-          };
+        for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+          const start = chunkIdx * CHUNK_SIZE;
+          const end = Math.min(totalSize, start + CHUNK_SIZE);
+          const chunkBlob = uploadFile.slice(start, end);
 
-          xhr.upload.onload = () => {
-            const totalMb = uploadFile ? (uploadFile.size / (1024 * 1024)).toFixed(1) : '0';
-            setDatasets((prev) =>
-              prev.map((d) =>
-                d.id === optimisticId
-                  ? {
-                      ...d,
-                      uploadProgress: 100,
-                      uploadStatusText: `Upload complete (${totalMb}MB) • Inspecting & cataloging dataset on server...`
-                    }
-                  : d
-              )
-            );
-          };
+          const chunkFormData = new FormData();
+          chunkFormData.append('uploadId', uploadSessionId);
+          chunkFormData.append('chunkIndex', chunkIdx.toString());
+          chunkFormData.append('totalChunks', totalChunks.toString());
+          chunkFormData.append('fileName', safeFileName);
+          chunkFormData.append('name', datasetName);
+          chunkFormData.append('category', datasetForm.category);
+          chunkFormData.append('domain', datasetForm.domain);
+          chunkFormData.append('description', datasetForm.description);
+          chunkFormData.append('uploadedBy', userName);
+          chunkFormData.append('chunk', chunkBlob, `part_${chunkIdx}.bin`);
 
-          xhr.upload.onerror = () => {
-            reject(new Error('Network error occurred during dataset upload'));
-          };
+          const chunkRes = await new Promise<any>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/datasets/chunk');
 
-          xhr.upload.onabort = () => {
-            reject(new Error('Dataset upload was canceled'));
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const data = JSON.parse(xhr.responseText);
-                setDatasets((prev) => [data, ...prev.filter((d) => d.id !== optimisticId)]);
-                resolve();
-              } catch (e) {
-                reject(new Error('Invalid response from server'));
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const currentChunkBytes = event.loaded;
+                const totalBytesUploadedSoFar = start + currentChunkBytes;
+                const percent = Math.min(99, Math.round((totalBytesUploadedSoFar / totalSize) * 100));
+                const loadedMb = (totalBytesUploadedSoFar / (1024 * 1024)).toFixed(1);
+                setDatasets((prev) =>
+                  prev.map((d) =>
+                    d.id === optimisticId
+                      ? {
+                          ...d,
+                          uploadProgress: percent,
+                          uploadStatusText: totalChunks > 1
+                            ? `Uploading: ${percent}% (${loadedMb}MB / ${totalMb}MB • Part ${chunkIdx + 1}/${totalChunks})`
+                            : `Uploading: ${percent}% (${loadedMb}MB / ${totalMb}MB)`
+                        }
+                      : d
+                  )
+                );
               }
-            } else {
-              let errMsg = 'Failed to upload dataset archive';
-              try {
-                const errJson = JSON.parse(xhr.responseText);
-                errMsg = errJson.error || errMsg;
-              } catch {}
-              reject(new Error(errMsg));
-            }
-          };
+            };
 
-          xhr.onerror = () => {
-            reject(new Error('Network error during file upload'));
-          };
+            xhr.upload.onload = () => {
+              if (chunkIdx === totalChunks - 1) {
+                setDatasets((prev) =>
+                  prev.map((d) =>
+                    d.id === optimisticId
+                      ? {
+                          ...d,
+                          uploadProgress: 100,
+                          uploadStatusText: `Upload complete (${totalMb}MB) • Inspecting & cataloging dataset on server...`
+                        }
+                      : d
+                  )
+                );
+              }
+            };
 
-          xhr.send(formData);
-        });
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  resolve(data);
+                } catch {
+                  reject(new Error('Invalid response from server'));
+                }
+              } else {
+                let errMsg = `Chunk ${chunkIdx + 1} upload failed`;
+                try {
+                  const errJson = JSON.parse(xhr.responseText);
+                  errMsg = errJson.error || errMsg;
+                } catch {}
+                reject(new Error(errMsg));
+              }
+            };
+
+            xhr.onerror = () => {
+              reject(new Error(`Network error uploading chunk ${chunkIdx + 1}/${totalChunks}`));
+            };
+
+            xhr.onabort = () => {
+              reject(new Error('Upload canceled'));
+            };
+
+            xhr.send(chunkFormData);
+          });
+
+          if (chunkRes && chunkRes.completed && chunkRes.dataset) {
+            finalDataset = chunkRes.dataset;
+          }
+        }
+
+        if (finalDataset) {
+          setDatasets((prev) => [finalDataset!, ...prev.filter((d) => d.id !== optimisticId)]);
+        }
 
         await loadData();
         setUploadSuccess(true);
