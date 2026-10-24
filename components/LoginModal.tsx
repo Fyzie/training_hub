@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { StaffUser } from '@/lib/types';
 import {
@@ -69,7 +69,14 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const { allUsers, login, register } = useAuth();
 
   // Mode: 'register' | 'login' | 'forgot-password' | 'reset-password'
-  const [authMode, setAuthMode] = useState<'register' | 'login' | 'forgot-password' | 'reset-password'>('register');
+  const [authMode, setAuthMode] = useState<'register' | 'login' | 'forgot-password' | 'reset-password'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token') || params.get('resetToken');
+      if (token) return 'reset-password';
+    }
+    return allUsers.length === 0 ? 'register' : 'login';
+  });
 
   // Register fields
   const [regName, setRegName] = useState('');
@@ -97,32 +104,40 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const [errorMessage, setErrorMessage] = useState('');
   const [pendingMessage, setPendingMessage] = useState('');
 
-  // Detect query params for password reset on mount or when modal opens
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const action = params.get('action');
-      const token = params.get('token') || params.get('resetToken');
-      if (token && (action === 'reset-password' || action === 'reset' || action === 'reset_password' || !action)) {
-        setResetToken(token);
-        setAuthMode('reset-password');
-      }
-    }
-  }, [isOpen]);
+  const prevIsOpenRef = useRef(false);
 
-  // Default to register if no users exist yet
+  // Initialize mode only when the modal opens (transitions from closed to open)
   useEffect(() => {
-    if (authMode === 'reset-password') return;
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('token') || params.get('resetToken')) return;
+    if (!isOpen) {
+      prevIsOpenRef.current = false;
+      return;
     }
-    if (allUsers.length === 0) {
-      setAuthMode('register');
-    } else if (authMode !== 'forgot-password') {
-      setAuthMode('login');
+
+    if (!prevIsOpenRef.current) {
+      prevIsOpenRef.current = true;
+
+      // 1. Check URL for password reset token
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const action = params.get('action');
+        const token = params.get('token') || params.get('resetToken');
+        if (token && (action === 'reset-password' || action === 'reset' || action === 'reset_password' || !action)) {
+          setResetToken(token);
+          setAuthMode('reset-password');
+          return;
+        }
+      }
+
+      // 2. Default to register if system is brand new (0 users), else default to login
+      if (allUsers.length === 0) {
+        setAuthMode('register');
+      } else {
+        setAuthMode('login');
+      }
+      setErrorMessage('');
+      setPendingMessage('');
     }
-  }, [allUsers.length, isOpen, authMode]);
+  }, [isOpen, allUsers.length]);
 
   if (!isOpen) return null;
 
@@ -346,7 +361,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
               }`}
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>Register New</span>
+              <span>Register Now</span>
             </button>
           </div>
         )}
@@ -498,6 +513,22 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
+
+            {allUsers.length > 0 && (
+              <div className="pt-1 text-center">
+                <span className="text-[11px] text-slate-500">Already have an account? </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('login');
+                    setErrorMessage('');
+                  }}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  Sign In
+                </button>
+              </div>
+            )}
           </form>
         )}
 
@@ -603,6 +634,20 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 >
                   <Lock className="w-3.5 h-3.5" />
                   <span>{isSubmitting ? 'Verifying Password...' : 'Sign In'}</span>
+                </button>
+              </div>
+
+              <div className="pt-1 text-center">
+                <span className="text-[11px] text-slate-500">Need a new staff account? </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('register');
+                    setErrorMessage('');
+                  }}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  Register Now
                 </button>
               </div>
             </form>

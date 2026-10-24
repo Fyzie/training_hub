@@ -1449,7 +1449,7 @@ dataset = version.download("coco")`
                     <div className="mt-5 space-y-2 text-xs bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
                       <div className="flex items-center justify-between text-slate-700">
                         <span className="text-slate-400 font-medium">Model Architecture:</span>
-                        <strong className="text-emerald-700">RF-DETR BBox</strong>
+                        <strong className="text-emerald-700">RFDETR BBox</strong>
                       </div>
                       <div className="flex items-center justify-between text-slate-700">
                         <span className="text-slate-400 font-medium">Variants:</span>
