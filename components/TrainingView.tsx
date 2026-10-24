@@ -164,6 +164,7 @@ export function TrainingView() {
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [cmViewMode, setCmViewMode] = useState<'grid' | 'image'>('grid');
+  const [jobConfusionMatrix, setJobConfusionMatrix] = useState<Record<string, any>>({});
 
   const [queueFilter, setQueueFilter] = useState<'all' | 'ongoing' | 'queued' | 'completed' | 'failed'>('all');
 
@@ -305,6 +306,28 @@ dataset = version.download("coco")`
       return true;
     });
   }, [jobs, userFilter, user]);
+
+  // Dynamically load real confusion matrix for completed runs if missing from initial payload
+  const activeJobForResult = selectedResultJob || completedRuns[0];
+  useEffect(() => {
+    if (!activeJobForResult || activeJobForResult.status !== 'completed') return;
+    if (activeJobForResult.confusionMatrix && activeJobForResult.confusionMatrix.matrix && activeJobForResult.confusionMatrix.matrix.length > 0) return;
+    if (jobConfusionMatrix[activeJobForResult.id]) return;
+
+    let isMounted = true;
+    fetch(`/api/jobs/${activeJobForResult.id}/confusion-matrix`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isMounted && data && data.matrix && data.matrix.length > 0) {
+          setJobConfusionMatrix((prev) => ({ ...prev, [activeJobForResult.id]: data }));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeJobForResult?.id, activeJobForResult?.status, activeJobForResult?.confusionMatrix, jobConfusionMatrix]);
 
   // Handle Delete Training Result (Owner only)
   const handleDeleteTrainingResult = async (jobId: string, jobName: string) => {
@@ -3351,58 +3374,17 @@ dataset = version.download("coco")`
                     {/* Confusion Matrix & Multi-Class Evaluation Section */}
                     {(() => {
                       const cm = (() => {
-                        const curDataset = datasets.find((d) => d.id === current.datasetId || d.name === current.datasetName);
                         const cmHasObjectOnly = current.confusionMatrix?.classes?.length === 1 && current.confusionMatrix.classes[0].toLowerCase() === 'object';
-                        const datasetHasRealClasses = curDataset?.classes && curDataset.classes.length > 0 && !(curDataset.classes.length === 1 && curDataset.classes[0].toLowerCase() === 'object');
-
                         if (current.confusionMatrix && current.confusionMatrix.matrix && current.confusionMatrix.matrix.length > 0 && !cmHasObjectOnly) {
                           return current.confusionMatrix;
                         }
-
-                        const classes: string[] = (datasetHasRealClasses && curDataset?.classes)
-                          ? curDataset.classes
-                          : ['defect', 'background'];
-                        const n = classes.length;
-                        const matrix = Array.from({ length: n }, (_, i) => {
-                          const row = Array(n).fill(0);
-                          const total = 55 + (i * 12);
-                          const correct = Math.floor(total * 0.94);
-                          row[i] = correct;
-                          const err = total - correct;
-                          for (let e = 0; e < err; e++) {
-                            const other = (i + 1 + (e % Math.max(1, n - 1))) % n;
-                            row[other]++;
-                          }
-                          return row;
-                        });
-                        const precision: Record<string, number> = {};
-                        const recall: Record<string, number> = {};
-                        const f1_score: Record<string, number> = {};
-                        classes.forEach((c, i) => {
-                          const tp = matrix[i][i];
-                          const fn = matrix[i].reduce((a, b) => a + b, 0) - tp;
-                          const fp = matrix.reduce((acc, row) => acc + row[i], 0) - tp;
-                          const p = Math.round((tp / Math.max(1, tp + fp)) * 1000) / 1000;
-                          const r = Math.round((tp / Math.max(1, tp + fn)) * 1000) / 1000;
-                          const f1 = Math.round(((2 * p * r) / Math.max(0.001, p + r)) * 1000) / 1000;
-                          precision[c] = p;
-                          recall[c] = r;
-                          f1_score[c] = f1;
-                        });
-                        const totalSamples = matrix.reduce((a, row) => a + row.reduce((b, v) => b + v, 0), 0);
-                        const totalCorrect = matrix.reduce((acc, row, i) => acc + row[i], 0);
-                        return {
-                          classes,
-                          matrix,
-                          total_samples: totalSamples,
-                          accuracy: Math.round((totalCorrect / Math.max(1, totalSamples)) * 1000) / 1000,
-                          precision,
-                          recall,
-                          f1_score
-                        };
+                        if (jobConfusionMatrix[current.id]) {
+                          return jobConfusionMatrix[current.id];
+                        }
+                        return null;
                       })();
 
-                      const cmClasses: string[] = (cm.classes && cm.classes.length > 0) ? cm.classes : ['defect', 'background'];
+                      const cmClasses: string[] = (cm && cm.classes && cm.classes.length > 0) ? cm.classes : [];
 
                       return (
                         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
@@ -3469,103 +3451,124 @@ dataset = version.download("coco")`
                                 Generating heatmap artifact... Toggle to Matrix Grid for live table view.
                               </div>
                             </div>
+                          ) : !cm ? (
+                            <div className="text-center py-12 bg-slate-50/60 rounded-2xl border border-dashed border-slate-200 p-6 space-y-3">
+                              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-1">
+                                <BarChart3 className="w-5 h-5" />
+                              </div>
+                              <p className="text-sm font-bold text-slate-800">
+                                Detailed Matrix Grid Loading
+                              </p>
+                              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                                Validation evaluation matrix is being parsed or available in high-resolution visual format.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setCmViewMode('image')}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors cursor-pointer"
+                              >
+                                View Heatmap (.PNG) ↗
+                              </button>
+                            </div>
                           ) : (
-                            cm && (
-                              <div className="space-y-4">
-                                <div className="overflow-x-auto pb-1">
-                                  <table className="w-full text-xs text-left border-collapse">
-                                    <thead>
-                                      <tr className="border-b border-slate-200 text-[11px] text-slate-400">
-                                        <th className="py-2.5 px-3 font-bold text-slate-500 uppercase tracking-wider">
-                                          Actual \ Predicted
+                            <div className="space-y-4">
+                              <div className="overflow-x-auto pb-1">
+                                <table className="w-full text-xs text-left border-collapse">
+                                  <thead>
+                                    <tr className="border-b border-slate-200 text-[11px] text-slate-400">
+                                      <th className="py-2.5 px-3 font-bold text-slate-500 uppercase tracking-wider">
+                                        Actual \ Predicted
+                                      </th>
+                                      {cmClasses.map((c: string) => (
+                                        <th key={c} className="py-2.5 px-3 font-bold text-slate-800 text-center">
+                                          {c}
                                         </th>
-                                        {cmClasses.map((c: string) => (
-                                          <th key={c} className="py-2.5 px-3 font-bold text-slate-800 text-center">
-                                            {c}
-                                          </th>
-                                        ))}
-                                        <th className="py-2.5 px-3 font-bold text-blue-700 text-center bg-blue-50/50">Recall</th>
-                                        <th className="py-2.5 px-3 font-bold text-indigo-700 text-center bg-indigo-50/50">F1 Score</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                      {cmClasses.map((actualCls: string, rIdx: number) => {
-                                        const rowSum = cm.matrix[rIdx]?.reduce((a: number, b: number) => a + b, 0) || 1;
-                                        const recallVal = cm.recall?.[actualCls] ?? ((cm.matrix[rIdx]?.[rIdx] || 0) / rowSum);
-                                        const f1Val = cm.f1_score?.[actualCls] ?? 0.94;
+                                      ))}
+                                      <th className="py-2.5 px-3 font-bold text-blue-700 text-center bg-blue-50/50">Recall</th>
+                                      <th className="py-2.5 px-3 font-bold text-indigo-700 text-center bg-indigo-50/50">F1 Score</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {cmClasses.map((actualCls: string, rIdx: number) => {
+                                      const rowSum = cm.matrix[rIdx]?.reduce((a: number, b: number) => a + b, 0) || 0;
+                                      const denom = (cm as any).class_gt_counts?.[actualCls] ?? (rowSum > 0 ? rowSum : 1);
+                                      const diagCount = cm.matrix[rIdx]?.[rIdx] || 0;
+                                      const recallVal = cm.recall?.[actualCls] ?? (denom > 0 ? diagCount / denom : 0);
+                                      const f1Val = cm.f1_score?.[actualCls] ?? (recallVal > 0 ? recallVal : 0);
 
+                                      return (
+                                        <tr key={actualCls} className="hover:bg-slate-50/80 transition-colors">
+                                          <td className="py-2.5 px-3 font-extrabold text-slate-900 whitespace-nowrap">
+                                            {actualCls}
+                                          </td>
+                                          {cmClasses.map((predCls: string, cIdx: number) => {
+                                            const count = cm.matrix[rIdx]?.[cIdx] ?? 0;
+                                            const pct = denom > 0 ? ((count / denom) * 100).toFixed(1) : '0.0';
+                                            const isDiag = rIdx === cIdx;
+
+                                            return (
+                                              <td key={predCls} className="py-2 px-3 text-center">
+                                                <div
+                                                  className={`p-2 rounded-xl text-center transition-all ${
+                                                    isDiag
+                                                      ? 'bg-blue-50 text-blue-900 border border-blue-200/80 font-black shadow-xs'
+                                                      : count > 0
+                                                      ? 'bg-rose-50 text-rose-700 border border-rose-200/50 font-bold'
+                                                      : 'bg-slate-50/70 text-slate-400 font-medium'
+                                                  }`}
+                                                >
+                                                  <span className="block text-xs">{count}</span>
+                                                  <span className="block text-[10px] opacity-75">{pct}%</span>
+                                                </div>
+                                              </td>
+                                            );
+                                          })}
+                                          <td className="py-2 px-3 text-center font-bold text-blue-700 bg-blue-50/30">
+                                            {(recallVal * 100).toFixed(1)}%
+                                          </td>
+                                          <td className="py-2 px-3 text-center font-bold text-indigo-700 bg-indigo-50/30">
+                                            {(f1Val * 100).toFixed(1)}%
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                    {/* Precision Row */}
+                                    <tr className="bg-slate-50/60 font-bold border-t-2 border-slate-200">
+                                      <td className="py-2.5 px-3 text-slate-600 uppercase text-[10px] tracking-wider">
+                                        Precision
+                                      </td>
+                                      {cmClasses.map((cls: string, cIdx: number) => {
+                                        const colSum = cm.matrix.reduce((acc: number, row: number[]) => acc + (row[cIdx] || 0), 0);
+                                        const tp = cm.matrix[cIdx]?.[cIdx] || 0;
+                                        const pVal = cm.precision?.[cls] ?? (colSum > 0 ? tp / colSum : 0);
                                         return (
-                                          <tr key={actualCls} className="hover:bg-slate-50/80 transition-colors">
-                                            <td className="py-2.5 px-3 font-extrabold text-slate-900 whitespace-nowrap">
-                                              {actualCls}
-                                            </td>
-                                            {cmClasses.map((predCls: string, cIdx: number) => {
-                                              const count = cm.matrix[rIdx]?.[cIdx] ?? 0;
-                                              const pct = ((count / rowSum) * 100).toFixed(1);
-                                              const isDiag = rIdx === cIdx;
-
-                                              return (
-                                                <td key={predCls} className="py-2 px-3 text-center">
-                                                  <div
-                                                    className={`p-2 rounded-xl text-center transition-all ${
-                                                      isDiag
-                                                        ? 'bg-blue-50 text-blue-900 border border-blue-200/80 font-black shadow-xs'
-                                                        : count > 0
-                                                        ? 'bg-rose-50 text-rose-700 border border-rose-200/50 font-bold'
-                                                        : 'bg-slate-50/70 text-slate-400 font-medium'
-                                                    }`}
-                                                  >
-                                                    <span className="block text-xs">{count}</span>
-                                                    <span className="block text-[10px] opacity-75">{pct}%</span>
-                                                  </div>
-                                                </td>
-                                              );
-                                            })}
-                                            <td className="py-2 px-3 text-center font-bold text-blue-700 bg-blue-50/30">
-                                              {(recallVal * 100).toFixed(1)}%
-                                            </td>
-                                            <td className="py-2 px-3 text-center font-bold text-indigo-700 bg-indigo-50/30">
-                                              {(f1Val * 100).toFixed(1)}%
-                                            </td>
-                                          </tr>
+                                          <td key={cls} className="py-2.5 px-3 text-center text-blue-700">
+                                            {(pVal * 100).toFixed(1)}%
+                                          </td>
                                         );
                                       })}
-                                      {/* Precision Row */}
-                                      <tr className="bg-slate-50/60 font-bold border-t-2 border-slate-200">
-                                        <td className="py-2.5 px-3 text-slate-600 uppercase text-[10px] tracking-wider">
-                                          Precision
-                                        </td>
-                                        {cmClasses.map((cls: string) => {
-                                          const pVal = cm.precision?.[cls] ?? 0.95;
-                                          return (
-                                            <td key={cls} className="py-2.5 px-3 text-center text-blue-700">
-                                              {(pVal * 100).toFixed(1)}%
-                                            </td>
-                                          );
-                                        })}
-                                        <td colSpan={2} className="py-2.5 px-3 text-right text-slate-500 font-semibold text-[11px]">
-                                          Accuracy: <strong className="text-slate-900 font-black">{((cm.accuracy || 0.95) * 100).toFixed(1)}%</strong>
-                                        </td>
-                                      </tr>
-                                    </tbody>
-                                  </table>
-                                </div>
+                                      <td colSpan={2} className="py-2.5 px-3 text-right text-slate-500 font-semibold text-[11px]">
+                                        Accuracy: <strong className="text-slate-900 font-black">{((cm.accuracy || 0.95) * 100).toFixed(1)}%</strong>
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
 
-                                <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 bg-slate-50 p-3 rounded-2xl border border-slate-100 gap-2">
-                                  <div className="flex items-center gap-4">
-                                    <span className="flex items-center gap-1.5 font-medium">
-                                      <span className="w-2.5 h-2.5 rounded bg-blue-500"></span> True Positive (Diagonal)
-                                    </span>
-                                    <span className="flex items-center gap-1.5 font-medium">
-                                      <span className="w-2.5 h-2.5 rounded bg-rose-400"></span> Classification Error / Spillover
-                                    </span>
-                                  </div>
-                                  <span className="text-[11px] font-semibold text-slate-600">
-                                    Total Evaluated: <strong className="text-slate-900">{cm.total_samples || (cmClasses.length * 65)}</strong> instances
+                              <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 bg-slate-50 p-3 rounded-2xl border border-slate-100 gap-2">
+                                <div className="flex items-center gap-4">
+                                  <span className="flex items-center gap-1.5 font-medium">
+                                    <span className="w-2.5 h-2.5 rounded bg-blue-500"></span> True Positive (Diagonal)
+                                  </span>
+                                  <span className="flex items-center gap-1.5 font-medium">
+                                    <span className="w-2.5 h-2.5 rounded bg-rose-400"></span> Classification Error / Spillover
                                   </span>
                                 </div>
+                                <span className="text-[11px] font-semibold text-slate-600">
+                                  Total Evaluated: <strong className="text-slate-900">{(cm.total_samples || cm.matrix.reduce((acc: number, row: number[]) => acc + row.reduce((a: number, b: number) => a + b, 0), 0)).toLocaleString()}</strong> instances
+                                </span>
                               </div>
-                            )
+                            </div>
                           )}
                         </div>
                       );

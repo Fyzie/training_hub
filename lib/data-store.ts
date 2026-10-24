@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { TrainingJob, Dataset, HardwareItem, BlogPost, StaffUser, PendingUser } from './types';
-import { DATA_DIR, ensureStorageHub } from './storage';
+import { DATA_DIR, UPLOAD_SUBDIRS, ensureStorageHub } from './storage';
 
 function ensureDir(dirPath: string) {
   ensureStorageHub();
@@ -194,7 +194,54 @@ export const dataStore = {
   },
 
   // Jobs
-  getJobs: (): TrainingJob[] => readJsonFile<TrainingJob[]>('jobs.json', []),
+  getJobs: (): TrainingJob[] => {
+    const list = readJsonFile<TrainingJob[]>('jobs.json', []);
+    let modified = false;
+    for (const job of list) {
+      if (!job.confusionMatrix || !job.confusionMatrix.matrix || job.confusionMatrix.matrix.length === 0) {
+        const candidatePaths = [
+          path.join(UPLOAD_SUBDIRS.runs, job.id, 'confusion_matrix.json'),
+          path.join(process.cwd(), 'public', 'uploads', 'runs', job.id, 'confusion_matrix.json'),
+          path.join(UPLOAD_SUBDIRS.runs, job.hyperparameters?.run_name || '', 'confusion_matrix.json'),
+          path.join(process.cwd(), 'public', 'uploads', 'runs', job.hyperparameters?.run_name || '', 'confusion_matrix.json'),
+        ];
+        for (const cp of candidatePaths) {
+          if (fs.existsSync(cp)) {
+            try {
+              const cmData = JSON.parse(fs.readFileSync(cp, 'utf8'));
+              if (cmData && cmData.matrix && cmData.matrix.length > 0) {
+                job.confusionMatrix = cmData;
+                modified = true;
+                break;
+              }
+            } catch {}
+          }
+        }
+        if (!job.confusionMatrix) {
+          const metaPaths = [
+            path.join(UPLOAD_SUBDIRS.runs, job.id, 'training_metadata.json'),
+            path.join(process.cwd(), 'public', 'uploads', 'runs', job.id, 'training_metadata.json'),
+          ];
+          for (const mp of metaPaths) {
+            if (fs.existsSync(mp)) {
+              try {
+                const meta = JSON.parse(fs.readFileSync(mp, 'utf8'));
+                if (meta && meta.confusion_matrix && meta.confusion_matrix.matrix) {
+                  job.confusionMatrix = meta.confusion_matrix;
+                  modified = true;
+                  break;
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+    }
+    if (modified) {
+      writeJsonFile('jobs.json', list);
+    }
+    return list;
+  },
   saveJobs: (jobs: TrainingJob[]) => writeJsonFile('jobs.json', jobs),
   getJobById: (id: string): TrainingJob | undefined => {
     return dataStore.getJobs().find((j) => j.id === id);

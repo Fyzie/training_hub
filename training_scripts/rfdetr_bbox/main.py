@@ -463,8 +463,8 @@ def compute_average_precision(recalls, precisions):
     return float(np.mean(mpre[indices]))
 
 
-def plot_confusion_matrix(matrix: list, classes: list, output_path: str):
-    """Generates a clean, normalized confusion matrix heatmap."""
+def plot_confusion_matrix(matrix: list, classes: list, output_path: str, class_gt_counts: dict = None):
+    """Generates a clean, normalized confusion matrix heatmap matching multi-class evaluation metrics."""
     matrix_np = np.array(matrix)
     n = len(classes)
 
@@ -472,12 +472,17 @@ def plot_confusion_matrix(matrix: list, classes: list, output_path: str):
     fig.patch.set_facecolor("#ffffff")
     ax.set_facecolor("#ffffff")
 
-    row_sums = matrix_np.sum(axis=1, keepdims=True)
+    if class_gt_counts is not None and len(class_gt_counts) == n:
+        denoms = np.array([max(1, class_gt_counts.get(i, matrix_np[i].sum())) for i in range(n)], dtype=float).reshape(-1, 1)
+    else:
+        denoms = matrix_np.sum(axis=1, keepdims=True)
+        denoms = np.where(denoms == 0, 1, denoms)
+
     norm_matrix = np.divide(
         matrix_np.astype("float"),
-        row_sums,
+        denoms,
         out=np.zeros_like(matrix_np, dtype=float),
-        where=(row_sums != 0),
+        where=(denoms != 0),
     )
 
     im = ax.imshow(norm_matrix, cmap="Blues", vmin=0, vmax=1.0)
@@ -499,7 +504,7 @@ def plot_confusion_matrix(matrix: list, classes: list, output_path: str):
             count = matrix_np[i, j]
             prop = norm_matrix[i, j]
             text_color = "white" if prop > 0.55 else "#0f172a"
-            cell_text = f"{int(count)}\n({prop:.1%})" if row_sums[i] > 0 else f"{int(count)}"
+            cell_text = f"{int(count)}\n({prop:.1%})" if denoms[i] > 0 else f"{int(count)}"
             ax.text(j, i, cell_text, ha="center", va="center", color=text_color, fontsize=9, fontweight="600")
 
     plt.tight_layout()
@@ -742,9 +747,10 @@ def evaluate_split_inference(
     })
 
     # Calculate overall accuracy, precision, recall for confusion matrix
-    total_samples = matrix.sum()
+    total_matched = int(matrix.sum())
+    total_evaluated = int(sum(class_gt_counts.values())) if class_gt_counts else total_matched
     tp_total = np.trace(matrix)
-    overall_acc = round(float(tp_total / max(1, total_samples)), 4) if total_samples > 0 else 0.95
+    overall_acc = round(float(tp_total / max(1, total_evaluated)), 4) if total_evaluated > 0 else 0.95
 
     precision_dict = {}
     recall_dict = {}
@@ -752,7 +758,8 @@ def evaluate_split_inference(
     for i, c_name in enumerate(class_names):
         tp_i = matrix[i, i]
         fp_i = matrix[:, i].sum() - tp_i
-        fn_i = matrix[i, :].sum() - tp_i
+        gt_count_i = class_gt_counts.get(i, 0)
+        fn_i = max(0, gt_count_i - tp_i) if gt_count_i > 0 else (matrix[i, :].sum() - tp_i)
         p_i = round(float(tp_i / max(1, tp_i + fp_i)), 3)
         r_i = round(float(tp_i / max(1, tp_i + fn_i)), 3)
         f1_i = round(float((2 * p_i * r_i) / max(0.001, p_i + r_i)), 3)
@@ -763,6 +770,9 @@ def evaluate_split_inference(
     confusion_dict = {
         "classes": class_names,
         "matrix": matrix.tolist(),
+        "total_samples": total_evaluated,
+        "total_matched": total_matched,
+        "class_gt_counts": {class_names[c]: int(class_gt_counts.get(c, 0)) for c in range(num_classes)},
         "accuracy": overall_acc,
         "precision": precision_dict,
         "recall": recall_dict,
@@ -921,6 +931,7 @@ def mirror_artifacts_to_public_runs(output_dir: str, job_id: str, run_name: str)
         "metrics_curves.png",
         "metrics.csv",
         "confusion_matrix.png",
+        "confusion_matrix.json",
         "val_comparison.png",
         "training_metadata.json",
         "result_bundle.zip"
@@ -1094,10 +1105,22 @@ def train_rfdetr(
         valid_results.append({"class": "all", "map@50:95": 0.0, "map@50": 0.0, "precision": 0.0, "recall": 0.0})
         overall_map = overall_prec = overall_rec = 0.0
 
-    # 7. Generate Confusion Matrix Heatmap (.png)
+    # 7. Generate Confusion Matrix Heatmap (.png) and Evaluation Metrics (.json)
     if confusion_dict:
         cm_png_path = os.path.join(output_dir, "confusion_matrix.png")
-        plot_confusion_matrix(confusion_dict["matrix"], class_names, cm_png_path)
+        plot_confusion_matrix(
+            confusion_dict["matrix"],
+            class_names,
+            cm_png_path,
+            class_gt_counts={i: confusion_dict["class_gt_counts"].get(class_names[i], 0) for i in range(num_classes)} if "class_gt_counts" in confusion_dict else None
+        )
+        cm_json_path = os.path.join(output_dir, "confusion_matrix.json")
+        try:
+            with open(cm_json_path, "w", encoding="utf-8") as f:
+                json.dump(confusion_dict, f, indent=2)
+            print(f"[Confusion Matrix] Heatmap plot and JSON saved to: {output_dir}")
+        except Exception as cme:
+            print(f"[Warning] Failed to write confusion_matrix.json: {cme}")
 
     # 8. Generate Validation vs Prediction Visual Collage (BBoxes)
     val_comp_path = os.path.join(output_dir, "val_comparison.png")
@@ -1122,6 +1145,7 @@ def train_rfdetr(
             "recall": overall_rec,
             "accuracy": confusion_dict.get("accuracy", overall_map) if confusion_dict else overall_map,
         },
+        "confusion_matrix": confusion_dict,
         "hyperparameters": {
             "model_architecture": model_architecture,
             "epochs": epochs,

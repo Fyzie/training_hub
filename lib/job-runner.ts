@@ -541,9 +541,26 @@ class JobScheduler {
                 }
                 if (typeof metaData.metrics.precision === 'number') currentJob.precision = metaData.metrics.precision;
                 if (typeof metaData.metrics.recall === 'number') currentJob.recall = metaData.metrics.recall;
+                if (typeof metaData.metrics.accuracy === 'number') currentJob.accuracy = metaData.metrics.accuracy;
+              }
+              if (metaData.confusion_matrix && metaData.confusion_matrix.matrix) {
+                currentJob.confusionMatrix = metaData.confusion_matrix;
               }
             } catch (e) {
               console.error('Error parsing training_metadata.json:', e);
+            }
+          }
+
+          // Check direct confusion_matrix.json
+          const cmPath = path.join(jobDir, 'confusion_matrix.json');
+          if (fs.existsSync(cmPath)) {
+            try {
+              const cmData = JSON.parse(fs.readFileSync(cmPath, 'utf8'));
+              if (cmData && cmData.matrix && cmData.matrix.length > 0) {
+                currentJob.confusionMatrix = cmData;
+              }
+            } catch (e) {
+              console.error('Error parsing confusion_matrix.json:', e);
             }
           }
 
