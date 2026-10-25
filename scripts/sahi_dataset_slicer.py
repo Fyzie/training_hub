@@ -230,6 +230,24 @@ def slice_dataset(
     src_path = Path(src_dataset_dir).resolve()
     dst_path = Path(dst_dataset_dir).resolve()
 
+    # Fallback resolution if src_path does not exist
+    if not src_path.exists():
+        # Check if src_path accidentally ended with _sahi
+        if str(src_path).endswith("_sahi"):
+            cand = Path(str(src_path)[:-5])
+            if cand.exists():
+                src_path = cand
+        # Check if an archive (.zip) exists for src_path
+        if not src_path.exists():
+            for zcand in [src_path.with_suffix(".zip"), Path(str(src_path) + ".zip")]:
+                if zcand.exists():
+                    import zipfile
+                    print(f"[SAHI Slicer] Auto-extracting source archive: {zcand.name}...", flush=True)
+                    src_path.mkdir(parents=True, exist_ok=True)
+                    with zipfile.ZipFile(zcand, "r") as zr:
+                        zr.extractall(src_path)
+                    break
+
     if not src_path.exists():
         raise FileNotFoundError(f"Source dataset directory does not exist: {src_path}")
 

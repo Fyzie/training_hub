@@ -8,6 +8,45 @@ import { getHostPythonExe } from './python-runtime';
 import { resolveJobTemplateInference } from './templates';
 import { sendEmail, getEnvHubConfig } from './email';
 
+function checkCocoAnnotations(dir?: string): boolean {
+  if (!dir || !fs.existsSync(dir)) return false;
+  try {
+    if (!fs.statSync(dir).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  const candidates = [
+    path.join(dir, 'train', '_annotations.coco.json'),
+    path.join(dir, '_annotations.coco.json'),
+    path.join(dir, 'annotations', 'instances_train.json'),
+    path.join(dir, 'annotations', 'instances_default.json'),
+    path.join(dir, 'train', 'annotations.json'),
+    path.join(dir, 'valid', '_annotations.coco.json'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return true;
+  }
+  try {
+    for (const sub of ['', 'train', 'annotations', 'valid']) {
+      const subDir = sub ? path.join(dir, sub) : dir;
+      if (fs.existsSync(subDir) && fs.statSync(subDir).isDirectory()) {
+        const files = fs.readdirSync(subDir);
+        for (const f of files) {
+          if (f.endsWith('.json')) {
+            try {
+              const content = fs.readFileSync(path.join(subDir, f), 'utf-8');
+              if (content.includes('"images"') && content.includes('"annotations"')) {
+                return true;
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+
 class JobScheduler {
   private timer: NodeJS.Timeout | null = null;
   private isProcessing = false;
@@ -57,8 +96,50 @@ class JobScheduler {
         if (nextQueued) {
           const datasets = dataStore.getDatasets();
           const dataset = datasets.find((d) => d.id === nextQueued.datasetId || d.name === nextQueued.datasetName);
-          const rawPath = dataset?.filePath || '';
-          const resolvedPath = resolveHostDatasetDir(rawPath, dataset?.name || nextQueued.datasetName);
+
+          const isSahi = (nextQueued.hyperparameters?.template && String(nextQueued.hyperparameters.template).includes('sahi')) ||
+            (nextQueued.taskType && String(nextQueued.taskType).includes('SAHI')) ||
+            (nextQueued.hyperparameters?.model_architecture && String(nextQueued.hyperparameters.model_architecture).includes('SAHI'));
+
+          // Check if target SAHI sliced dataset is already extracted and ready on disk
+          let alreadySlicedDir = '';
+          if (isSahi && dataset) {
+            const candSahiDir = resolveHostDatasetDir(dataset.filePath, dataset.name);
+            if (checkCocoAnnotations(candSahiDir)) {
+              alreadySlicedDir = candSahiDir;
+            }
+          }
+
+          if (alreadySlicedDir) {
+            nextQueued.status = 'running';
+            nextQueued.startedAt = new Date().toISOString();
+            const deviceLabel = nextQueued.deviceName ? `${nextQueued.device} (${nextQueued.deviceName})` : nextQueued.device;
+            nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Training slot acquired. Initializing Host GPU: ${deviceLabel}...`);
+            nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Loading dataset from host storage: ${nextQueued.datasetName}...`);
+            dataStore.updateJob(nextQueued.id, nextQueued);
+            activeRunningJob = nextQueued;
+            this.prepareAndSpawnJob(nextQueued, alreadySlicedDir);
+            return;
+          }
+
+          // Otherwise, resolve the underlying source dataset to unzip or slice from
+          let sourceDataset = dataset;
+          if (isSahi) {
+            const srcId = nextQueued.hyperparameters?.srcDatasetId;
+            if (srcId) {
+              const s = datasets.find((d) => d.id === srcId);
+              if (s) sourceDataset = s;
+            }
+            if (!sourceDataset || sourceDataset.name.endsWith('(SAHI)')) {
+              const origName = (sourceDataset?.name || nextQueued.datasetName).replace(/\s*\(SAHI\)$/i, '').trim();
+              const s = datasets.find((d) => d.name.toLowerCase() === origName.toLowerCase() && !d.name.toLowerCase().endsWith('(sahi)'));
+              if (s) sourceDataset = s;
+            }
+          }
+
+          const targetDs = sourceDataset || dataset;
+          const rawPath = targetDs?.filePath || nextQueued.hyperparameters?.srcDatasetFilePath || '';
+          const resolvedPath = resolveHostDatasetDir(rawPath, targetDs?.name || nextQueued.datasetName);
 
           const isZip = resolvedPath.toLowerCase().endsWith('.zip') || (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile());
           const extractedCandidate = resolvedPath.replace(/\.zip$/i, '');
@@ -76,8 +157,8 @@ class JobScheduler {
             unzipDatasetArchiveAsync(resolvedPath, extractedCandidate)
               .then((finalDir) => {
                 console.log(`[Host Server] Dataset unzipped to: ${finalDir}`);
-                if (dataset) {
-                  dataset.filePath = `/uploads/datasets/${path.basename(finalDir)}`;
+                if (targetDs) {
+                  targetDs.filePath = `/uploads/datasets/${path.basename(finalDir)}`;
                   dataStore.saveDatasets(datasets);
                 }
                 const updatedJob = dataStore.getJobById(nextQueued.id);
@@ -102,8 +183,8 @@ class JobScheduler {
 
           // Dataset is already unzipped / ready
           const finalDatasetDir = isExtractedAlready ? extractedCandidate : resolvedPath;
-          if (dataset && isExtractedAlready && dataset.filePath?.toLowerCase().endsWith('.zip')) {
-            dataset.filePath = `/uploads/datasets/${path.basename(extractedCandidate)}`;
+          if (targetDs && isExtractedAlready && targetDs.filePath?.toLowerCase().endsWith('.zip')) {
+            targetDs.filePath = `/uploads/datasets/${path.basename(extractedCandidate)}`;
             dataStore.saveDatasets(datasets);
           }
 
@@ -479,24 +560,59 @@ class JobScheduler {
     }
 
     // SAHI Slicing Preprocessing
-    const normDir = datasetDir.replace(/\\/g, '/');
-    const isAlreadySahi = normDir.endsWith('_sahi');
-    const targetSahiDir = isAlreadySahi ? datasetDir : `${datasetDir.replace(/\/$/, '')}_sahi`;
-
-    const hasSahiAnn = fs.existsSync(path.join(targetSahiDir, 'train', '_annotations.coco.json')) ||
-      fs.existsSync(path.join(targetSahiDir, '_annotations.coco.json'));
-
     const datasets = dataStore.getDatasets();
     const origDataset = datasets.find((d) => d.id === job.datasetId || d.name === job.datasetName);
-    const origName = (origDataset?.name || job.datasetName).replace(/\s*\(SAHI\)$/i, '');
+    const origName = (origDataset?.name || job.datasetName).replace(/\s*\(SAHI\)$/i, '').trim();
     const sahiDatasetName = `${origName} (SAHI)`;
 
-    if (hasSahiAnn) {
-      job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Sliced dataset verified: ${path.basename(targetSahiDir)}`);
-      job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${job.totalEpochs} on Host GPU (CUDA)...`);
-      job.stage = 'training';
+    let sourceDir = datasetDir;
+    let targetSahiDir = '';
+
+    const normDir = datasetDir.replace(/\\/g, '/');
+    if (normDir.endsWith('_sahi')) {
+      targetSahiDir = datasetDir;
+      if (checkCocoAnnotations(targetSahiDir)) {
+        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Sliced dataset verified: ${path.basename(targetSahiDir)}`);
+        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${job.totalEpochs} on Host GPU (CUDA)...`);
+        job.stage = 'training';
+        dataStore.updateJob(job.id, job);
+        this.spawnTrainingProcess(job, targetSahiDir);
+        return;
+      }
+      // targetSahiDir does not have annotations yet; find the real source dataset without '_sahi'
+      const unslicedCand = datasetDir.replace(/_sahi$/i, '');
+      if (fs.existsSync(unslicedCand) && fs.statSync(unslicedCand).isDirectory()) {
+        sourceDir = unslicedCand;
+      } else {
+        const srcId = job.hyperparameters?.srcDatasetId;
+        const srcDs = (srcId ? datasets.find(d => d.id === srcId) : null) ||
+          datasets.find(d => d.name.toLowerCase() === origName.toLowerCase() && !d.name.toLowerCase().endsWith('(sahi)'));
+        if (srcDs) {
+          sourceDir = resolveHostDatasetDir(srcDs.filePath, srcDs.name);
+        }
+      }
+    } else {
+      sourceDir = datasetDir;
+      targetSahiDir = `${datasetDir.replace(/\/$/, '')}_sahi`;
+      if (checkCocoAnnotations(targetSahiDir)) {
+        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Existing SAHI dataset verified: ${path.basename(targetSahiDir)}`);
+        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${job.totalEpochs} on Host GPU (CUDA)...`);
+        job.stage = 'training';
+        dataStore.updateJob(job.id, job);
+        this.spawnTrainingProcess(job, targetSahiDir);
+        return;
+      }
+    }
+
+    // Verify sourceDir or zip exists before invoking python slicer
+    const zipCand = `${sourceDir.replace(/\/$/, '')}.zip`;
+    const hasSource = fs.existsSync(sourceDir) || (fs.existsSync(zipCand) && fs.statSync(zipCand).isFile());
+
+    if (!hasSource) {
+      job.status = 'failed';
+      job.stage = undefined;
+      job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Dataset Slicing failed: Source dataset directory not found at ${sourceDir}`);
       dataStore.updateJob(job.id, job);
-      this.spawnTrainingProcess(job, targetSahiDir);
       return;
     }
 
@@ -517,7 +633,7 @@ class JobScheduler {
     const pythonExe = getHostPythonExe();
     const args = [
       slicerScript,
-      '--src_dataset_dir', datasetDir,
+      '--src_dataset_dir', sourceDir,
       '--dst_dataset_dir', targetSahiDir,
       '--slice_cols', String(sliceCols),
       '--slice_rows', String(sliceRows),

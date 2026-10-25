@@ -62,37 +62,63 @@ export async function POST(request: Request) {
     let effectiveDatasetId = body.datasetId;
     let effectiveDatasetName = dataset ? dataset.name : (body.datasetName || 'Custom Dataset');
 
-    if (isSahi && dataset && !dataset.name.endsWith('(SAHI)')) {
-      const sahiDatasetName = `${dataset.name} (SAHI)`;
-      let sahiDataset = datasets.find((d) => d.name.toLowerCase() === sahiDatasetName.toLowerCase());
-      const sliceCols = Number(body.hyperparameters?.sliceCols || body.hyperparameters?.slice_cols || 2);
-      const sliceRows = Number(body.hyperparameters?.sliceRows || body.hyperparameters?.slice_rows || 2);
-      const overlapType = body.hyperparameters?.overlapType || 'pixel';
+    let srcDatasetId = body.datasetId;
+    let srcDatasetName = dataset ? dataset.name : (body.datasetName || 'Custom Dataset');
+    let srcDatasetFilePath = dataset?.filePath || '';
 
-      if (!sahiDataset) {
-        sahiDataset = {
-          id: `ds-sahi-${Date.now().toString(36)}`,
-          name: sahiDatasetName,
-          category: 'vision',
-          domain: 'Instance Segmentation / Object Detection',
-          description: `SAHI sliced dataset generated from ${dataset.name} (${sliceCols}x${sliceRows} slices, ${overlapType} overlap).`,
-          format: 'coco',
-          fileSizeMB: Math.round((dataset.fileSizeMB || 10) * sliceCols * sliceRows * 0.9 * 10) / 10,
-          sampleCount: (dataset.sampleCount || 10) * sliceCols * sliceRows,
-          uploadedBy: dataset.uploadedBy || body.submittedBy || 'Staff ML Engineer',
-          uploadedAt: new Date().toISOString(),
-          filePath: `/uploads/datasets/${path.basename(dataset.filePath || dataset.name).replace(/\.zip$/i, '')}_sahi`,
-          classes: dataset.classes || [],
-          splits: dataset.splits ? {
-            train: (dataset.splits.train || 0) * sliceCols * sliceRows,
-            val: (dataset.splits.val || 0) * sliceCols * sliceRows,
-            test: (dataset.splits.test || 0) * sliceCols * sliceRows,
-          } : undefined
-        };
-        dataStore.addDataset(sahiDataset);
+    if (isSahi && dataset) {
+      const isAlreadySahiName = dataset.name.endsWith('(SAHI)');
+      const origName = dataset.name.replace(/\s*\(SAHI\)$/i, '').trim();
+
+      if (isAlreadySahiName) {
+        // User selected a dataset already named "(SAHI)"
+        const origParent = datasets.find((d) => d.name.toLowerCase() === origName.toLowerCase() && !d.name.toLowerCase().endsWith('(sahi)'));
+        if (origParent) {
+          srcDatasetId = origParent.id;
+          srcDatasetName = origParent.name;
+          srcDatasetFilePath = origParent.filePath || '';
+        } else {
+          srcDatasetFilePath = (dataset.filePath || '').replace(/_sahi$/i, '');
+        }
+        effectiveDatasetId = dataset.id;
+        effectiveDatasetName = dataset.name;
+      } else {
+        // User selected the unsliced source dataset
+        srcDatasetId = dataset.id;
+        srcDatasetName = dataset.name;
+        srcDatasetFilePath = dataset.filePath || '';
+
+        const sahiDatasetName = `${dataset.name} (SAHI)`;
+        let sahiDataset = datasets.find((d) => d.name.toLowerCase() === sahiDatasetName.toLowerCase());
+        const sliceCols = Number(body.hyperparameters?.sliceCols || body.hyperparameters?.slice_cols || 2);
+        const sliceRows = Number(body.hyperparameters?.sliceRows || body.hyperparameters?.slice_rows || 2);
+        const overlapType = body.hyperparameters?.overlapType || 'pixel';
+
+        if (!sahiDataset) {
+          sahiDataset = {
+            id: `ds-sahi-${Date.now().toString(36)}`,
+            name: sahiDatasetName,
+            category: 'vision',
+            domain: 'Instance Segmentation / Object Detection',
+            description: `SAHI sliced dataset generated from ${dataset.name} (${sliceCols}x${sliceRows} slices, ${overlapType} overlap).`,
+            format: 'coco',
+            fileSizeMB: Math.round((dataset.fileSizeMB || 10) * sliceCols * sliceRows * 0.9 * 10) / 10,
+            sampleCount: (dataset.sampleCount || 10) * sliceCols * sliceRows,
+            uploadedBy: dataset.uploadedBy || body.submittedBy || 'Staff ML Engineer',
+            uploadedAt: new Date().toISOString(),
+            filePath: `/uploads/datasets/${path.basename(dataset.filePath || dataset.name).replace(/\.zip$/i, '')}_sahi`,
+            classes: dataset.classes || [],
+            splits: dataset.splits ? {
+              train: (dataset.splits.train || 0) * sliceCols * sliceRows,
+              val: (dataset.splits.val || 0) * sliceCols * sliceRows,
+              test: (dataset.splits.test || 0) * sliceCols * sliceRows,
+            } : undefined
+          };
+          dataStore.addDataset(sahiDataset);
+        }
+        effectiveDatasetId = sahiDataset.id;
+        effectiveDatasetName = sahiDataset.name;
       }
-      effectiveDatasetId = sahiDataset.id;
-      effectiveDatasetName = sahiDataset.name;
     }
 
     const newJob: TrainingJob = {
@@ -126,7 +152,10 @@ export async function POST(request: Request) {
         pretrained: body.pretrained ?? true,
         model_architecture: body.hyperparameters?.model_architecture || (body.taskType?.includes('Seg') ? 'RFDETRSegSmall' : 'RFDETRSmall'),
         backbone: body.hyperparameters?.model_architecture || (body.taskType?.includes('Seg') ? 'RF-DETR Swin-Small' : 'RF-DETR ResNet-50'),
-        ...(body.hyperparameters || {})
+        ...(body.hyperparameters || {}),
+        srcDatasetId,
+        srcDatasetName,
+        srcDatasetFilePath
       },
       description: body.description || ''
     };
