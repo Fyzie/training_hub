@@ -934,6 +934,7 @@ def mirror_artifacts_to_public_runs(output_dir: str, job_id: str, run_name: str)
         "confusion_matrix.json",
         "val_comparison.png",
         "training_metadata.json",
+        "inference.py",
         "result_bundle.zip"
     ]
     for fn in files_to_mirror:
@@ -1013,7 +1014,7 @@ def train_rfdetr(
     print(f"  Epochs:           {epochs} (Batch Size: {batch_size}, Grad Accum: {grad_accum_steps})")
     print(f"  Learning Rate:    {lr}")
     print(f"  Val. Interval:    {val_interval}")
-    print(f"  Early Stopping:   {early_stopping_patience} ({early_stopping})")
+    print(f"  Early Stopping:   {early_stopping_patience} epochs patience ({'enabled' if early_stopping else 'disabled'}, validation loss-guided)")
     print("=================================================================", flush=True)
 
     # 1. Initialize RF-DETR Detection Model
@@ -1163,6 +1164,16 @@ def train_rfdetr(
     }
     with open(os.path.join(output_dir, "training_metadata.json"), "w", encoding="utf-8") as f:
         json.dump(training_meta, f, indent=2)
+
+    # 9.5 Include inference.py from template directory into result bundle if present
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    inf_template_path = os.path.join(script_dir, "inference.py")
+    if os.path.exists(inf_template_path):
+        try:
+            shutil.copy2(inf_template_path, os.path.join(output_dir, "inference.py"))
+            print(f"[Inference Script] Included inference.py in result bundle: {output_dir}")
+        except Exception as e:
+            print(f"[Warning] Failed to copy inference.py: {e}")
 
     # 10. Result Packaging (result_bundle.zip)
     bundle_path = os.path.join(output_dir, "result_bundle.zip")

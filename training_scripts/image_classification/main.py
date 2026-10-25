@@ -636,6 +636,7 @@ def mirror_artifacts_to_public_runs(output_dir: str, job_id: str, run_name: str)
         "val_comparison.png",
         "training_metadata.json",
         "hparams.yaml",
+        "inference.py",
         "result_bundle.zip"
     ]
     for fn in files_to_mirror:
@@ -678,6 +679,7 @@ def train_image_classification(
     pretrained: bool = True,
     label_smoothing: float = 0.1,
     drop_rate: float = 0.2,
+    early_stopping: bool = True,
     patience: int = 15,
     warmup_epochs: int = 5,
     device: str = "cuda",
@@ -717,7 +719,7 @@ def train_image_classification(
     print(f"  Batch Size:       {batch_size}")
     print(f"  Learning Rate:    {lr} (Optimizer: {optimizer_name}, Decay: {weight_decay})")
     print(f"  Label Smoothing:  {label_smoothing} | Drop Rate: {drop_rate}")
-    print(f"  Patience:         {patience} epochs (Macro F1-guided)")
+    print(f"  Early Stopping:   {patience} epochs patience ({'enabled' if early_stopping else 'disabled'}, validation loss-guided)")
     print("=================================================================", flush=True)
 
     # 2. Data Preparation
@@ -816,11 +818,11 @@ def train_image_classification(
             train_loss = running_loss / max(1, len(train_data))
             val_loss, acc, macro_f1, _, _, _ = evaluate_model(model, val_loader, criterion, active_device)
 
-            is_best = macro_f1 > best_macro_f1
+            is_best = val_loss < best_loss
             if is_best:
+                best_loss = val_loss
                 best_macro_f1 = macro_f1
                 best_acc = acc
-                best_loss = val_loss
                 torch.save(model.state_dict(), weights_best_pt)
                 torch.save({
                     "epoch": epoch,
@@ -904,11 +906,11 @@ def train_image_classification(
         cur_bb_lr = stage2_optimizer.param_groups[0]['lr']
         cur_head_lr = stage2_optimizer.param_groups[1]['lr']
 
-        is_best = macro_f1 > best_macro_f1
+        is_best = val_loss < best_loss
         if is_best:
+            best_loss = val_loss
             best_macro_f1 = macro_f1
             best_acc = acc
-            best_loss = val_loss
             epochs_no_improve = 0
             torch.save(model.state_dict(), weights_best_pt)
             torch.save({
@@ -917,6 +919,7 @@ def train_image_classification(
                 "state_dict": model.state_dict(),
                 "best_macro_f1": best_macro_f1,
                 "best_accuracy": best_acc,
+                "best_loss": best_loss,
                 "classes": class_names,
                 "num_classes": num_classes,
                 "img_size": img_size
@@ -932,8 +935,8 @@ def train_image_classification(
 
         print(f"Epoch {epoch}/{epochs} | Train: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {acc:.4f} | Macro F1: {macro_f1:.4f} | LR: {cur_bb_lr:.1e}/{cur_head_lr:.1e}{saved_mark}", flush=True)
 
-        if epochs_no_improve >= patience:
-            print(f"\n[Early Stopping] No improvement in validation Macro F1 for {patience} consecutive epochs. Stopping early at Epoch {epoch}.", flush=True)
+        if early_stopping and epochs_no_improve >= patience:
+            print(f"\n[Early Stopping] No improvement in validation loss for {patience} consecutive epochs. Stopping early at Epoch {epoch}.", flush=True)
             break
 
     # Save last weights
@@ -1107,6 +1110,16 @@ created_at: "{datetime.utcnow().isoformat()}"
     with open(os.path.join(output_dir, "training_metadata.json"), "w", encoding="utf-8") as f:
         json.dump(training_meta, f, indent=2)
 
+    # 6.55 Include inference.py from template directory into result bundle if present
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    inf_template_path = os.path.join(script_dir, "inference.py")
+    if os.path.exists(inf_template_path):
+        try:
+            shutil.copy2(inf_template_path, os.path.join(output_dir, "inference.py"))
+            print(f"[Inference Script] Included inference.py in result bundle: {output_dir}")
+        except Exception as e:
+            print(f"[Warning] Failed to copy inference.py: {e}")
+
     # 6.6 Result Bundle Packaging
     bundle_path = os.path.join(output_dir, "result_bundle.zip")
     with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1144,6 +1157,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=lambda x: (str(x).lower() in ['true', '1', 'yes']), default=True, help="Load pretrained backbone weights")
     parser.add_argument("--label_smoothing", type=float, default=0.1, help="Label smoothing epsilon")
     parser.add_argument("--drop_rate", type=float, default=0.2, help="Dropout rate on classifier head")
+    parser.add_argument("--early_stopping", type=lambda x: (str(x).lower() in ['true', '1', 'yes']), default=True, help="Enable early stopping based on validation loss")
+    parser.add_argument("--early_stopping_patience", type=int, default=0, help="Early stopping patience in epochs")
     parser.add_argument("--patience", type=int, default=15, help="Early stopping patience in epochs")
     parser.add_argument("--warmup_epochs", type=int, default=5, help="Head warmup epochs with frozen backbone")
     parser.add_argument("--device", type=str, default="cuda", help="Target device (cuda or cpu)")
@@ -1151,6 +1166,8 @@ if __name__ == "__main__":
     parser.add_argument("--submitted_by", type=str, default="Staff ML Engineer", help="Submitter name")
 
     args = parser.parse_args()
+
+    effective_patience = args.early_stopping_patience if args.early_stopping_patience > 0 else args.patience
 
     train_image_classification(
         dataset_dir=args.dataset_dir,
@@ -1167,7 +1184,8 @@ if __name__ == "__main__":
         pretrained=args.pretrained,
         label_smoothing=args.label_smoothing,
         drop_rate=args.drop_rate,
-        patience=args.patience,
+        early_stopping=args.early_stopping,
+        patience=effective_patience,
         warmup_epochs=args.warmup_epochs,
         device=args.device,
         job_id=args.job_id,

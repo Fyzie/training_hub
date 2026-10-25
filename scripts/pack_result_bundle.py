@@ -372,6 +372,20 @@ created_at: "{datetime.utcnow().isoformat()}"
     except Exception as e:
         print(f"[Warning] Failed to generate confusion matrix: {e}", file=sys.stderr)
 
+    # Copy inference.py from template directory if available
+    inf_candidates = [
+        REPO_ROOT / "training_scripts" / ("rfdetr_bbox" if is_bbox else "rfdetr_segmentation") / "inference.py",
+        REPO_ROOT / "training_scripts" / "image_classification" / "inference.py"
+    ]
+    for cand in inf_candidates:
+        if cand.exists():
+            try:
+                import shutil
+                shutil.copy2(str(cand), str(job_dir / "inference.py"))
+                break
+            except Exception:
+                pass
+
     # 8. Pack complete result_bundle.zip containing all standard files
     zip_path = job_dir / "result_bundle.zip"
     with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
@@ -388,6 +402,7 @@ created_at: "{datetime.utcnow().isoformat()}"
             val_img_path,
             cm_png_path,
             cm_json_path,
+            job_dir / "inference.py",
             weights_dir / "best_rfdetr_weights.pt"
         ]:
             if fpath.exists():

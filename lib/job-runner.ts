@@ -5,6 +5,7 @@ import { dataStore } from './data-store';
 import { TrainingJob, TrainingMetricPoint } from './types';
 import { UPLOADS_DIR, ensureStorageHub, resolveHostDatasetDir, unzipDatasetArchiveAsync, scanDatasetClasses } from './storage';
 import { getHostPythonExe } from './python-runtime';
+import { resolveJobTemplateInference } from './templates';
 import { sendEmail, getEnvHubConfig } from './email';
 
 class JobScheduler {
@@ -81,11 +82,9 @@ class JobScheduler {
                 }
                 const updatedJob = dataStore.getJobById(nextQueued.id);
                 if (updatedJob && updatedJob.status === 'running') {
-                  updatedJob.stage = 'training';
                   updatedJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Dataset unzipped successfully: ${path.basename(finalDir)}`);
-                  updatedJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${updatedJob.totalEpochs} on Host GPU (CUDA)...`);
                   dataStore.updateJob(updatedJob.id, updatedJob);
-                  this.spawnTrainingProcess(updatedJob, finalDir);
+                  this.prepareAndSpawnJob(updatedJob, finalDir);
                 }
               })
               .catch((err) => {
@@ -109,16 +108,14 @@ class JobScheduler {
           }
 
           nextQueued.status = 'running';
-          nextQueued.stage = 'training';
           nextQueued.startedAt = new Date().toISOString();
           const deviceLabel = nextQueued.deviceName ? `${nextQueued.device} (${nextQueued.deviceName})` : nextQueued.device;
           nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Training slot acquired. Initializing Host GPU: ${deviceLabel}...`);
           nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Loading dataset from host storage: ${nextQueued.datasetName}...`);
-          nextQueued.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Backbone initialized on CUDA device. Commencing Epoch 1/${nextQueued.totalEpochs}...`);
           dataStore.updateJob(nextQueued.id, nextQueued);
           activeRunningJob = nextQueued;
 
-          this.spawnTrainingProcess(nextQueued, finalDatasetDir);
+          this.prepareAndSpawnJob(nextQueued, finalDatasetDir);
         }
       }
 
@@ -255,6 +252,23 @@ class JobScheduler {
             }
             job.logs.push(`[${new Date().toLocaleTimeString()}] Training completed! Exported final checkpoint to ${job.checkpointPath}`);
             job.logs.push(`[${new Date().toLocaleTimeString()}] Training result bundle generated in local storage.`);
+
+            try {
+              const templateRes = resolveJobTemplateInference(job);
+              if (templateRes.hasInferenceScript && templateRes.inferenceScriptPath) {
+                const destInf = path.join(jobDir, 'inference.py');
+                if (!fs.existsSync(destInf)) {
+                  fs.copyFileSync(templateRes.inferenceScriptPath, destInf);
+                }
+                const pubInf = path.join(process.cwd(), 'public', 'uploads', 'runs', job.id, 'inference.py');
+                if (fs.existsSync(path.dirname(pubInf)) && !fs.existsSync(pubInf)) {
+                  fs.copyFileSync(templateRes.inferenceScriptPath, pubInf);
+                }
+              }
+            } catch (e) {
+              console.error('Error copying inference script in onPostProcessingComplete:', e);
+            }
+
             dataStore.updateJob(job.id, job);
 
             // Send Email Notification via Resend (Item 6)
@@ -302,7 +316,11 @@ class JobScheduler {
             // Generate full result bundle on host (weights, results, collage images, and training metadata)
             const packScript = path.join(process.cwd(), 'scripts', 'pack_result_bundle.py');
             const pythonExe = getHostPythonExe();
-            const modelArch = job.hyperparameters?.model_architecture || (isBbox ? 'RFDETRSmall' : 'RFDETRSegSmall');
+            const isSahi = (job.hyperparameters?.template && String(job.hyperparameters.template).includes('sahi')) ||
+              (job.taskType && String(job.taskType).includes('SAHI')) ||
+              (job.hyperparameters?.model_architecture && String(job.hyperparameters.model_architecture).includes('SAHI'));
+            const defaultArch = isSahi ? (isBbox ? 'RFDETRSmall' : 'RFDETRSegMedium') : (isBbox ? 'RFDETRSmall' : 'RFDETRSegSmall');
+            const modelArch = job.hyperparameters?.model_architecture || defaultArch;
             const expName = job.name.replace(/["']/g, '');
             const runName = `${modelArch}_${job.id}`;
             const bboxFlag = isBbox ? '--is_bbox' : '';
@@ -447,6 +465,152 @@ class JobScheduler {
     }
   }
 
+  private prepareAndSpawnJob(job: TrainingJob, datasetDir: string) {
+    const isSahi = (job.hyperparameters?.template && String(job.hyperparameters.template).includes('sahi')) ||
+      (job.taskType && String(job.taskType).includes('SAHI')) ||
+      (job.hyperparameters?.model_architecture && String(job.hyperparameters.model_architecture).includes('SAHI'));
+
+    if (!isSahi) {
+      job.stage = 'training';
+      job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Backbone initialized on CUDA device. Commencing Epoch 1/${job.totalEpochs}...`);
+      dataStore.updateJob(job.id, job);
+      this.spawnTrainingProcess(job, datasetDir);
+      return;
+    }
+
+    // SAHI Slicing Preprocessing
+    const normDir = datasetDir.replace(/\\/g, '/');
+    const isAlreadySahi = normDir.endsWith('_sahi');
+    const targetSahiDir = isAlreadySahi ? datasetDir : `${datasetDir.replace(/\/$/, '')}_sahi`;
+
+    const hasSahiAnn = fs.existsSync(path.join(targetSahiDir, 'train', '_annotations.coco.json')) ||
+      fs.existsSync(path.join(targetSahiDir, '_annotations.coco.json'));
+
+    const datasets = dataStore.getDatasets();
+    const origDataset = datasets.find((d) => d.id === job.datasetId || d.name === job.datasetName);
+    const origName = (origDataset?.name || job.datasetName).replace(/\s*\(SAHI\)$/i, '');
+    const sahiDatasetName = `${origName} (SAHI)`;
+
+    if (hasSahiAnn) {
+      job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Sliced dataset verified: ${path.basename(targetSahiDir)}`);
+      job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${job.totalEpochs} on Host GPU (CUDA)...`);
+      job.stage = 'training';
+      dataStore.updateJob(job.id, job);
+      this.spawnTrainingProcess(job, targetSahiDir);
+      return;
+    }
+
+    // Execute SAHI Dataset Slicer
+    job.status = 'running';
+    job.stage = 'preparing';
+    const sliceCols = Number(job.hyperparameters?.sliceCols || job.hyperparameters?.slice_cols || 2);
+    const sliceRows = Number(job.hyperparameters?.sliceRows || job.hyperparameters?.slice_rows || 2);
+    const overlapType = job.hyperparameters?.overlapType || 'pixel';
+    const overlapX = Number(job.hyperparameters?.overlapPixelX ?? job.hyperparameters?.overlapRatioX ?? job.hyperparameters?.overlap_x ?? 80);
+    const overlapY = Number(job.hyperparameters?.overlapPixelY ?? job.hyperparameters?.overlapRatioY ?? job.hyperparameters?.overlap_y ?? 80);
+    const minBoxSize = Number(job.hyperparameters?.minBoxSize || 2);
+
+    job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Algorithm: Slicing source dataset into ${sliceCols}x${sliceRows} tiles (overlap ${overlapX}x${overlapY} ${overlapType})...`);
+    dataStore.updateJob(job.id, job);
+
+    const slicerScript = path.join(process.cwd(), 'scripts', 'sahi_dataset_slicer.py');
+    const pythonExe = getHostPythonExe();
+    const args = [
+      slicerScript,
+      '--src_dataset_dir', datasetDir,
+      '--dst_dataset_dir', targetSahiDir,
+      '--slice_cols', String(sliceCols),
+      '--slice_rows', String(sliceRows),
+      '--overlap_type', overlapType,
+      '--overlap_x', String(overlapX),
+      '--overlap_y', String(overlapY),
+      '--min_box_size', String(minBoxSize)
+    ];
+
+    console.log(`[Host Server] Slicing dataset for job ${job.id}: "${pythonExe}" ${args.join(' ')}`);
+    const child = spawn(pythonExe, args, {
+      cwd: process.cwd(),
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
+
+    let stdoutData = '';
+    let stderrData = '';
+
+    child.stdout.on('data', (d) => {
+      stdoutData += d.toString();
+      const lines = d.toString().split(/\r?\n/).filter((l: string) => l.trim().length > 0);
+      for (const l of lines) {
+        if (!l.includes('SAHI_SLICER_RESULT')) {
+          job.logs.push(l);
+        }
+      }
+      dataStore.updateJob(job.id, job);
+    });
+
+    child.stderr.on('data', (d) => {
+      stderrData += d.toString();
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        let sliceMeta: any = null;
+        try {
+          const match = stdoutData.match(/--- SAHI_SLICER_RESULT ---\s*(\{[\s\S]*\})/);
+          if (match && match[1]) {
+            sliceMeta = JSON.parse(match[1]);
+          }
+        } catch {}
+
+        const totalImages = sliceMeta?.total_images || (origDataset?.sampleCount || 10) * sliceCols * sliceRows;
+        const totalCats = sliceMeta?.categories || origDataset?.classes || [];
+
+        // Register / update in dataStore catalog
+        let sahiDs = datasets.find((d) => d.name.toLowerCase() === sahiDatasetName.toLowerCase());
+        if (!sahiDs) {
+          sahiDs = {
+            id: `ds-sahi-${Date.now().toString(36)}`,
+            name: sahiDatasetName,
+            category: 'vision',
+            domain: 'Instance Segmentation / Object Detection',
+            description: `SAHI sliced dataset generated from ${origName} (${sliceCols}x${sliceRows} slices, ${overlapType} overlap).`,
+            format: 'coco',
+            fileSizeMB: Math.round(((origDataset?.fileSizeMB || 10) * sliceCols * sliceRows * 0.9) * 10) / 10,
+            sampleCount: totalImages,
+            uploadedBy: origDataset?.uploadedBy || job.submittedBy || 'Staff ML Engineer',
+            uploadedAt: new Date().toISOString(),
+            filePath: `/uploads/datasets/${path.basename(targetSahiDir)}`,
+            classes: totalCats,
+            splits: sliceMeta?.splits || undefined
+          };
+          dataStore.addDataset(sahiDs);
+        } else {
+          sahiDs.sampleCount = totalImages;
+          sahiDs.filePath = `/uploads/datasets/${path.basename(targetSahiDir)}`;
+          if (totalCats.length > 0) sahiDs.classes = totalCats;
+          if (sliceMeta?.splits) sahiDs.splits = sliceMeta.splits;
+          dataStore.updateDataset(sahiDs.id, sahiDs);
+        }
+
+        const freshJob = dataStore.getJobById(job.id) || job;
+        freshJob.datasetId = sahiDs.id;
+        freshJob.datasetName = sahiDs.name;
+        freshJob.stage = 'training';
+        freshJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Dataset ready: "${sahiDatasetName}" (${totalImages} slices generated) added to Catalogued Datasets.`);
+        freshJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Backbone initialized on CUDA device. Commencing Epoch 1/${freshJob.totalEpochs}...`);
+        dataStore.updateJob(freshJob.id, freshJob);
+
+        this.spawnTrainingProcess(freshJob, targetSahiDir);
+      } else {
+        console.error('[Host Server] SAHI Slicing failed:', stderrData);
+        const freshJob = dataStore.getJobById(job.id) || job;
+        freshJob.status = 'failed';
+        freshJob.stage = undefined;
+        freshJob.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Dataset Slicing failed: ${stderrData || 'Exit code ' + code}`);
+        dataStore.updateJob(job.id, freshJob);
+      }
+    });
+  }
+
   private spawnTrainingProcess(job: TrainingJob, datasetDir: string) {
     try {
       const pythonExe = getHostPythonExe();
@@ -461,9 +625,19 @@ class JobScheduler {
         (job.hyperparameters?.model_architecture && !job.hyperparameters.model_architecture.includes('Seg'))
       );
 
+      const isSahi = (job.hyperparameters?.template && String(job.hyperparameters.template).includes('sahi')) ||
+        (job.taskType && String(job.taskType).includes('SAHI')) ||
+        (job.hyperparameters?.model_architecture && String(job.hyperparameters.model_architecture).includes('SAHI'));
+
       let scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_segmentation', 'main.py');
       if (isClf) {
         scriptPath = path.join(process.cwd(), 'training_scripts', 'image_classification', 'main.py');
+      } else if (isSahi) {
+        if (isBbox) {
+          scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_bbox_sahi', 'main.py');
+        } else {
+          scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_seg_sahi', 'main.py');
+        }
       } else if (isBbox) {
         scriptPath = path.join(process.cwd(), 'training_scripts', 'rfdetr_bbox', 'main.py');
       }
@@ -476,6 +650,7 @@ class JobScheduler {
 
       let defaultArch = 'RFDETRSegMedium';
       if (isClf) defaultArch = 'mobilenetv4_conv_small';
+      else if (isSahi) defaultArch = isBbox ? 'RFDETRSmall' : 'RFDETRSegMedium';
       else if (isBbox) defaultArch = 'RFDETRSmall';
       const modelArch = job.hyperparameters?.model_architecture || defaultArch;
 
@@ -499,6 +674,32 @@ class JobScheduler {
           '--img_size', String(job.hyperparameters?.img_size || 224),
           '--weight_decay', String(job.hyperparameters?.weight_decay || 0.0001)
         );
+        if (job.hyperparameters?.pretrained !== undefined) {
+          args.push('--pretrained', String(job.hyperparameters.pretrained));
+        }
+        if (job.hyperparameters?.label_smoothing !== undefined) {
+          args.push('--label_smoothing', String(job.hyperparameters.label_smoothing));
+        }
+        if (job.hyperparameters?.early_stopping !== undefined) {
+          args.push('--early_stopping', String(job.hyperparameters.early_stopping));
+        }
+        if (job.hyperparameters?.early_stopping_patience !== undefined) {
+          args.push('--patience', String(job.hyperparameters.early_stopping_patience));
+          args.push('--early_stopping_patience', String(job.hyperparameters.early_stopping_patience));
+        }
+      } else {
+        if (job.hyperparameters?.val_interval !== undefined) {
+          args.push('--val_interval', String(job.hyperparameters.val_interval));
+        }
+        if (job.hyperparameters?.save_interval !== undefined) {
+          args.push('--save_interval', String(job.hyperparameters.save_interval));
+        }
+        if (job.hyperparameters?.early_stopping !== undefined) {
+          args.push('--early_stopping', String(job.hyperparameters.early_stopping));
+        }
+        if (job.hyperparameters?.early_stopping_patience !== undefined) {
+          args.push('--early_stopping_patience', String(job.hyperparameters.early_stopping_patience));
+        }
       }
 
       console.log(`[Host Server Job Runner] Spawning GPU training process: "${pythonExe}" ${args.join(' ')}`);
@@ -607,6 +808,24 @@ class JobScheduler {
           currentJob.valComparisonUrl = `/uploads/runs/${currentJob.id}/val_comparison.png`;
           currentJob.resultZipUrl = `/uploads/runs/${currentJob.id}/result_bundle.zip`;
           currentJob.resultFolderUrl = `/uploads/runs/${currentJob.id}`;
+
+          // Ensure template inference.py is mirrored to job result folder
+          try {
+            const templateRes = resolveJobTemplateInference(currentJob);
+            if (templateRes.hasInferenceScript && templateRes.inferenceScriptPath) {
+              const destInf = path.join(jobDir, 'inference.py');
+              if (!fs.existsSync(destInf)) {
+                fs.copyFileSync(templateRes.inferenceScriptPath, destInf);
+              }
+              const pubInf = path.join(process.cwd(), 'public', 'uploads', 'runs', currentJob.id, 'inference.py');
+              if (fs.existsSync(path.dirname(pubInf)) && !fs.existsSync(pubInf)) {
+                fs.copyFileSync(templateRes.inferenceScriptPath, pubInf);
+              }
+            }
+          } catch (e) {
+            console.error('Error copying inference script to run dir:', e);
+          }
+
           currentJob.logs.push(`[${new Date().toLocaleTimeString()}] Training completed! Exported final checkpoint to ${currentJob.checkpointPath}`);
           dataStore.updateJob(currentJob.id, currentJob);
 

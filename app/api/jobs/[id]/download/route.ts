@@ -5,12 +5,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { UPLOADS_DIR } from '@/lib/storage';
 import { dataStore } from '@/lib/data-store';
 import { getHostPythonExe } from '@/lib/python-runtime';
+import { resolveJobTemplateInference } from '@/lib/templates';
 import { spawn } from 'child_process';
 
 async function generateZipBundleAsync(runDir: string, zipPath: string): Promise<boolean> {
-  // If valid zip already exists and is not empty, reuse it
+  const infFile = path.join(runDir, 'inference.py');
+  const hasInf = fs.existsSync(infFile);
+
+  // If valid zip already exists and is not empty, check if inference.py needs to be included
   if (fs.existsSync(zipPath) && fs.statSync(zipPath).size > 200) {
-    return true;
+    if (hasInf && fs.statSync(infFile).mtimeMs > fs.statSync(zipPath).mtimeMs) {
+      // inference.py was added or updated after zip was created: regenerate zip bundle!
+      try { fs.unlinkSync(zipPath); } catch {}
+    } else {
+      return true;
+    }
   }
 
   if (!fs.existsSync(runDir)) {
@@ -142,6 +151,23 @@ export async function GET(
           JSON.stringify(job, null, 2),
           'utf-8'
         );
+      }
+    }
+
+    // Ensure inference.py is included in the run result directory from template if not already present
+    const runInfPath = path.join(runDir, 'inference.py');
+    if (!fs.existsSync(runInfPath)) {
+      const templateRes = resolveJobTemplateInference(job);
+      if (templateRes.hasInferenceScript && templateRes.inferenceScriptPath) {
+        try {
+          fs.copyFileSync(templateRes.inferenceScriptPath, runInfPath);
+          const pubDir = path.resolve(process.cwd(), 'public', 'uploads', 'runs', id);
+          if (fs.existsSync(pubDir)) {
+            fs.copyFileSync(templateRes.inferenceScriptPath, path.join(pubDir, 'inference.py'));
+          }
+        } catch (e) {
+          console.error('Could not copy template inference.py to runDir:', e);
+        }
       }
     }
 

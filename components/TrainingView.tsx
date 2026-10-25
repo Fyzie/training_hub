@@ -41,7 +41,10 @@ import {
   Users,
   X,
   Loader2,
-  FolderArchive
+  FolderArchive,
+  FileCode,
+  Info,
+  Grid
 } from 'lucide-react';
 
 interface HyperparamRule {
@@ -88,7 +91,7 @@ function getHyperparamError(field: string, val: number | string): string | null 
 export function TrainingView() {
   const { user } = useAuth();
   const [subTab, setSubTab] = useState<'queue' | 'submit' | 'datasets' | 'results'>('queue');
-  const [submitView, setSubmitView] = useState<'templates' | 'segmentation' | 'classification' | 'detection'>('templates');
+  const [submitView, setSubmitView] = useState<'templates' | 'segmentation' | 'classification' | 'detection' | 'segmentation_sahi' | 'detection_sahi'>('templates');
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [availableUsers, setAvailableUsers] = useState<string[]>([]);
@@ -137,6 +140,62 @@ export function TrainingView() {
     device: 'cuda',
   });
 
+  // --- RF-DETR Instance Segmentation (SAHI) State ---
+  const [rfdetrSegSahiForm, setRfdetrSegSahiForm] = useState({
+    name: '',
+    runName: '',
+    segModel: 'RFDETRSegMedium',
+    datasetId: '',
+    description: 'Instance segmentation training with SAHI slicing algorithm and RF-DETR architecture.',
+    // SAHI Slicing parameters
+    sliceCols: 2 as number | string,
+    sliceRows: 2 as number | string,
+    overlapType: 'pixel' as 'pixel' | 'percentage',
+    overlapPixelX: 80 as number | string,
+    overlapPixelY: 80 as number | string,
+    overlapRatioX: 20 as number | string,
+    overlapRatioY: 20 as number | string,
+    minBoxSize: 2 as number | string,
+    // Hyperparameters
+    epochs: 100 as number | string,
+    batchSize: 4 as number | string,
+    gradAccumSteps: 4 as number | string,
+    lr: 0.0001 as number | string,
+    valInterval: 1 as number | string,
+    saveInterval: 10 as number | string,
+    earlyStopping: true,
+    earlyStoppingPatience: 10 as number | string,
+    device: 'cuda',
+  });
+
+  // --- RF-DETR Object Detection (SAHI) State ---
+  const [rfdetrBboxSahiForm, setRfdetrBboxSahiForm] = useState({
+    name: '',
+    runName: '',
+    bboxModel: 'RFDETRSmall',
+    datasetId: '',
+    description: 'Object detection (bounding box) training with SAHI slicing algorithm and RF-DETR architecture.',
+    // SAHI Slicing parameters
+    sliceCols: 2 as number | string,
+    sliceRows: 2 as number | string,
+    overlapType: 'pixel' as 'pixel' | 'percentage',
+    overlapPixelX: 80 as number | string,
+    overlapPixelY: 80 as number | string,
+    overlapRatioX: 20 as number | string,
+    overlapRatioY: 20 as number | string,
+    minBoxSize: 2 as number | string,
+    // Hyperparameters
+    epochs: 100 as number | string,
+    batchSize: 4 as number | string,
+    gradAccumSteps: 4 as number | string,
+    lr: 0.0001 as number | string,
+    valInterval: 1 as number | string,
+    saveInterval: 10 as number | string,
+    earlyStopping: true,
+    earlyStoppingPatience: 10 as number | string,
+    device: 'cuda',
+  });
+
   // --- Image Classification (MobileNetV4 via timm) State ---
   const [classificationForm, setClassificationForm] = useState({
     name: '',
@@ -159,6 +218,8 @@ export function TrainingView() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitErrorModal, setSubmitErrorModal] = useState<string | null>(null);
+  const [inferenceAlertModal, setInferenceAlertModal] = useState<string | null>(null);
+  const [isDownloadingInference, setIsDownloadingInference] = useState(false);
 
   // Dataset Analysis Modal State
   const [analysisDataset, setAnalysisDataset] = useState<Dataset | null>(null);
@@ -197,11 +258,11 @@ dataset = version.download("coco")`
 
   // Target Dataset Selection Modal for Training Templates
   const [targetDatasetPickerOpen, setTargetDatasetPickerOpen] = useState(false);
-  const [targetDatasetPickerTemplate, setTargetDatasetPickerTemplate] = useState<'rfdetr_seg' | 'rfdetr_bbox' | 'classification'>('rfdetr_seg');
+  const [targetDatasetPickerTemplate, setTargetDatasetPickerTemplate] = useState<'rfdetr_seg' | 'rfdetr_bbox' | 'classification' | 'rfdetr_seg_sahi' | 'rfdetr_bbox_sahi'>('rfdetr_seg');
   const [datasetPickerSearch, setDatasetPickerSearch] = useState('');
   const [datasetPickerPage, setDatasetPickerPage] = useState(1);
 
-  const openTargetDatasetPicker = (template: 'rfdetr_seg' | 'rfdetr_bbox' | 'classification') => {
+  const openTargetDatasetPicker = (template: 'rfdetr_seg' | 'rfdetr_bbox' | 'classification' | 'rfdetr_seg_sahi' | 'rfdetr_bbox_sahi') => {
     setTargetDatasetPickerTemplate(template);
     setDatasetPickerSearch('');
     setDatasetPickerPage(1);
@@ -233,10 +294,10 @@ dataset = version.download("coco")`
       if (jRes.ok) {
         const jData = await jRes.json();
         setJobs(jData);
-        if (selectedJob) {
-          const updatedSelected = jData.find((j: TrainingJob) => j.id === selectedJob.id);
-          if (updatedSelected) setSelectedJob(updatedSelected);
-        }
+        setSelectedJob((prev) => {
+          if (!prev) return null;
+          return jData.find((j: TrainingJob) => j.id === prev.id) || prev;
+        });
       }
       if (dRes.ok) {
         const dData = await dRes.json();
@@ -247,15 +308,52 @@ dataset = version.download("coco")`
           );
           return [...remainingUploading, ...dData];
         });
-        if (!rfdetrForm.datasetId && dData.length > 0) {
-          setRfdetrForm((prev) => ({ ...prev, datasetId: dData[0].id }));
-        }
-        if (!rfdetrBboxForm.datasetId && dData.length > 0) {
-          setRfdetrBboxForm((prev) => ({ ...prev, datasetId: dData[0].id }));
-        }
-        if (!classificationForm.datasetId && dData.length > 0) {
-          setClassificationForm((prev) => ({ ...prev, datasetId: dData[0].id }));
-        }
+
+        // Initialize with first compatible dataset ONLY if none is selected yet (preserves user selection)
+        setRfdetrForm((prev) => {
+          if (prev.datasetId && dData.some((d: Dataset) => d.id === prev.datasetId)) {
+            return prev;
+          }
+          if (prev.datasetId) return prev;
+          const compatible = dData.find((d: Dataset) => !(d.domain === 'Image Classification' || d.format === 'images_folder' || d.domain === 'Tabular' || d.format === 'csv'));
+          return compatible ? { ...prev, datasetId: compatible.id } : prev;
+        });
+
+        setRfdetrBboxForm((prev) => {
+          if (prev.datasetId && dData.some((d: Dataset) => d.id === prev.datasetId)) {
+            return prev;
+          }
+          if (prev.datasetId) return prev;
+          const compatible = dData.find((d: Dataset) => !(d.domain === 'Image Classification' || d.format === 'images_folder' || d.domain === 'Tabular' || d.format === 'csv'));
+          return compatible ? { ...prev, datasetId: compatible.id } : prev;
+        });
+
+        setRfdetrSegSahiForm((prev) => {
+          if (prev.datasetId && dData.some((d: Dataset) => d.id === prev.datasetId)) {
+            return prev;
+          }
+          if (prev.datasetId) return prev;
+          const compatible = dData.find((d: Dataset) => !(d.domain === 'Image Classification' || d.format === 'images_folder' || d.domain === 'Tabular' || d.format === 'csv'));
+          return compatible ? { ...prev, datasetId: compatible.id } : prev;
+        });
+
+        setRfdetrBboxSahiForm((prev) => {
+          if (prev.datasetId && dData.some((d: Dataset) => d.id === prev.datasetId)) {
+            return prev;
+          }
+          if (prev.datasetId) return prev;
+          const compatible = dData.find((d: Dataset) => !(d.domain === 'Image Classification' || d.format === 'images_folder' || d.domain === 'Tabular' || d.format === 'csv'));
+          return compatible ? { ...prev, datasetId: compatible.id } : prev;
+        });
+
+        setClassificationForm((prev) => {
+          if (prev.datasetId && dData.some((d: Dataset) => d.id === prev.datasetId)) {
+            return prev;
+          }
+          if (prev.datasetId) return prev;
+          const compatible = dData.find((d: Dataset) => (d.domain === 'Image Classification' || d.format === 'images_folder'));
+          return compatible ? { ...prev, datasetId: compatible.id } : prev;
+        });
       }
       if (uRes && uRes.ok) {
         const uData = await uRes.json();
@@ -427,6 +525,32 @@ dataset = version.download("coco")`
     URL.revokeObjectURL(url);
   };
 
+  // Handle Download Inference Script (.PY)
+  const handleDownloadInference = async (jobId: string, jobName: string) => {
+    setIsDownloadingInference(true);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/inference?check=true`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.exists) {
+        setInferenceAlertModal(data.error || 'No inference script provided');
+        return;
+      }
+
+      // Trigger download
+      const safeName = (jobName || jobId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const downloadLink = document.createElement('a');
+      downloadLink.href = `/api/jobs/${jobId}/inference`;
+      downloadLink.download = `inference_${safeName}.py`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    } catch (err: any) {
+      setInferenceAlertModal('No inference script provided');
+    } finally {
+      setIsDownloadingInference(false);
+    }
+  };
+
   // Handle RF-DETR Job Submit
   const handleRfdetrSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -434,9 +558,9 @@ dataset = version.download("coco")`
       setSubmitErrorModal('Please enter an Experiment / Project Name before submitting.');
       return;
     }
-    const targetDatasetId = rfdetrForm.datasetId || (datasets.length > 0 ? datasets[0].id : '');
+    const targetDatasetId = rfdetrForm.datasetId;
     if (!targetDatasetId) {
-      setSubmitErrorModal('No dataset found! Please upload a COCO dataset before starting model training.');
+      setSubmitErrorModal('No target dataset selected! Please select an Instance Segmentation dataset before starting model training.');
       return;
     }
 
@@ -478,6 +602,7 @@ dataset = version.download("coco")`
         submittedById: user?.id,
         description: rfdetrForm.description,
         hyperparameters: {
+          template: 'rfdetr_segmentation',
           model_architecture: rfdetrForm.segModel,
           run_name: rfdetrForm.runName || `${rfdetrForm.segModel}_Training`,
           epochs: Number(rfdetrForm.epochs),
@@ -515,16 +640,16 @@ dataset = version.download("coco")`
     }
   };
 
-  // Handle RF-DETR Object Detection (BBox) Job Submit
+  // Handle RF-DETR Object Detection Job Submit
   const handleRfdetrBboxSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rfdetrBboxForm.name.trim()) {
       setSubmitErrorModal('Please enter an Experiment / Project Name before submitting.');
       return;
     }
-    const targetDatasetId = rfdetrBboxForm.datasetId || (datasets.length > 0 ? datasets[0].id : '');
+    const targetDatasetId = rfdetrBboxForm.datasetId;
     if (!targetDatasetId) {
-      setSubmitErrorModal('No dataset found! Please upload a COCO dataset before starting model training.');
+      setSubmitErrorModal('No target dataset selected! Please select an Object Detection dataset before starting model training.');
       return;
     }
 
@@ -566,6 +691,7 @@ dataset = version.download("coco")`
         submittedById: user?.id,
         description: rfdetrBboxForm.description,
         hyperparameters: {
+          template: 'rfdetr_bbox',
           model_architecture: rfdetrBboxForm.bboxModel,
           run_name: rfdetrBboxForm.runName || `${rfdetrBboxForm.bboxModel}_BBox_Training`,
           epochs: Number(rfdetrBboxForm.epochs),
@@ -610,9 +736,9 @@ dataset = version.download("coco")`
       setSubmitErrorModal('Please enter an Experiment / Project Name before submitting.');
       return;
     }
-    const targetDatasetId = classificationForm.datasetId || (datasets.length > 0 ? datasets[0].id : '');
+    const targetDatasetId = classificationForm.datasetId;
     if (!targetDatasetId) {
-      setSubmitErrorModal('No dataset found! Please upload an image classification dataset before starting model training.');
+      setSubmitErrorModal('No target dataset selected! Please select an Image Classification dataset before starting model training.');
       return;
     }
 
@@ -654,6 +780,7 @@ dataset = version.download("coco")`
         submittedById: user?.id,
         description: classificationForm.description,
         hyperparameters: {
+          template: 'image_classification',
           model_architecture: classificationForm.modelArchitecture,
           backbone: `MobileNetV4 (${classificationForm.modelArchitecture})`,
           run_name: classificationForm.runName || `${classificationForm.modelArchitecture}_Training`,
@@ -689,6 +816,214 @@ dataset = version.download("coco")`
     } catch (err: any) {
       console.error('Failed to submit Image Classification job:', err);
       setSubmitErrorModal(err.message || 'Network or server error encountered while submitting Image Classification job');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle RF-DETR Instance Segmentation (SAHI) Job Submit
+  const handleRfdetrSegSahiSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rfdetrSegSahiForm.name.trim()) {
+      setSubmitErrorModal('Please enter an Experiment / Project Name before submitting.');
+      return;
+    }
+    const targetDatasetId = rfdetrSegSahiForm.datasetId;
+    if (!targetDatasetId) {
+      setSubmitErrorModal('No target dataset selected! Please select an Instance Segmentation dataset before starting model training.');
+      return;
+    }
+
+    const targetDataset = datasets.find((d) => d.id === targetDatasetId);
+    if (targetDataset) {
+      if (targetDataset.domain === 'Image Classification' || targetDataset.format === 'images_folder') {
+        setSubmitErrorModal(`Incompatible Dataset Format: The selected dataset "${targetDataset.name}" is formatted for Image Classification (${targetDataset.domain || targetDataset.format}). RF-DETR Instance Segmentation requires an Instance Segmentation dataset (COCO format with polygon segmentation masks).`);
+        return;
+      }
+      if (targetDataset.domain === 'Tabular' || targetDataset.format === 'csv') {
+        setSubmitErrorModal(`Incompatible Dataset Format: The selected dataset "${targetDataset.name}" is a Tabular dataset, which cannot be used for vision instance segmentation.`);
+        return;
+      }
+    }
+
+    if (Number(rfdetrSegSahiForm.sliceCols) < 1 || Number(rfdetrSegSahiForm.sliceRows) < 1) {
+      setSubmitErrorModal('Target slices must be at least 1 column and 1 row.');
+      return;
+    }
+
+    // Validate hyperparameters
+    const rfdetrFields = ['epochs', 'batchSize', 'gradAccumSteps', 'lr', 'valInterval', 'saveInterval'];
+    if (rfdetrSegSahiForm.earlyStopping) rfdetrFields.push('earlyStoppingPatience');
+    for (const f of rfdetrFields) {
+      const err = getHyperparamError(f, (rfdetrSegSahiForm as any)[f]);
+      if (err) {
+        setSubmitErrorModal(`Invalid hyperparameter: ${err}. Please correct it before submitting.`);
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        name: rfdetrSegSahiForm.name.trim(),
+        category: 'vision',
+        taskType: `RF-DETR Instance Segmentation (SAHI)`,
+        datasetId: targetDatasetId,
+        epochs: Number(rfdetrSegSahiForm.epochs),
+        batchSize: Number(rfdetrSegSahiForm.batchSize),
+        learningRate: Number(rfdetrSegSahiForm.lr),
+        device: 'cuda',
+        submittedBy: user?.name || 'Staff ML Engineer',
+        submittedById: user?.id,
+        description: rfdetrSegSahiForm.description,
+        hyperparameters: {
+          template: 'rfdetr_seg_sahi',
+          model_architecture: rfdetrSegSahiForm.segModel,
+          run_name: rfdetrSegSahiForm.runName || `${rfdetrSegSahiForm.segModel.replace(/\s+/g, '_')}_Training`,
+          epochs: Number(rfdetrSegSahiForm.epochs),
+          batch_size: Number(rfdetrSegSahiForm.batchSize),
+          grad_accum_steps: Number(rfdetrSegSahiForm.gradAccumSteps),
+          lr: Number(rfdetrSegSahiForm.lr),
+          device: 'cuda',
+          val_interval: Number(rfdetrSegSahiForm.valInterval),
+          save_interval: Number(rfdetrSegSahiForm.saveInterval),
+          early_stopping: rfdetrSegSahiForm.earlyStopping,
+          early_stopping_patience: Number(rfdetrSegSahiForm.earlyStoppingPatience),
+          // SAHI Slicing Configuration
+          sahi: true,
+          sliceCols: Number(rfdetrSegSahiForm.sliceCols),
+          sliceRows: Number(rfdetrSegSahiForm.sliceRows),
+          overlapType: rfdetrSegSahiForm.overlapType,
+          overlapPixelX: Number(rfdetrSegSahiForm.overlapPixelX),
+          overlapPixelY: Number(rfdetrSegSahiForm.overlapPixelY),
+          overlapRatioX: Number(rfdetrSegSahiForm.overlapRatioX),
+          overlapRatioY: Number(rfdetrSegSahiForm.overlapRatioY),
+          minBoxSize: Number(rfdetrSegSahiForm.minBoxSize),
+        }
+      };
+
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        await loadData();
+        setUserFilter('all');
+        setSubTab('queue');
+        setSubmitView('templates');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setSubmitErrorModal(data.error || 'Failed to submit RF-DETR SAHI Segmentation training job to queue');
+      }
+    } catch (err: any) {
+      console.error('Failed to submit RF-DETR SAHI job:', err);
+      setSubmitErrorModal(err.message || 'Network or server error encountered while submitting RF-DETR SAHI job');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle RF-DETR Object Detection (SAHI) Job Submit
+  const handleRfdetrBboxSahiSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rfdetrBboxSahiForm.name.trim()) {
+      setSubmitErrorModal('Please enter an Experiment / Project Name before submitting.');
+      return;
+    }
+    const targetDatasetId = rfdetrBboxSahiForm.datasetId;
+    if (!targetDatasetId) {
+      setSubmitErrorModal('No target dataset selected! Please select an Object Detection dataset before starting model training.');
+      return;
+    }
+
+    const targetDataset = datasets.find((d) => d.id === targetDatasetId);
+    if (targetDataset) {
+      if (targetDataset.domain === 'Image Classification' || targetDataset.format === 'images_folder') {
+        setSubmitErrorModal(`Incompatible Dataset Format: The selected dataset "${targetDataset.name}" is formatted for Image Classification (${targetDataset.domain || targetDataset.format}). RF-DETR Object Detection requires a bounding box dataset (COCO format with bbox annotations).`);
+        return;
+      }
+      if (targetDataset.domain === 'Tabular' || targetDataset.format === 'csv') {
+        setSubmitErrorModal(`Incompatible Dataset Format: The selected dataset "${targetDataset.name}" is a Tabular dataset, which cannot be used for vision object detection.`);
+        return;
+      }
+    }
+
+    if (Number(rfdetrBboxSahiForm.sliceCols) < 1 || Number(rfdetrBboxSahiForm.sliceRows) < 1) {
+      setSubmitErrorModal('Target slices must be at least 1 column and 1 row.');
+      return;
+    }
+
+    // Validate hyperparameters
+    const bboxFields = ['epochs', 'batchSize', 'gradAccumSteps', 'lr', 'valInterval', 'saveInterval'];
+    if (rfdetrBboxSahiForm.earlyStopping) bboxFields.push('earlyStoppingPatience');
+    for (const f of bboxFields) {
+      const err = getHyperparamError(f, (rfdetrBboxSahiForm as any)[f]);
+      if (err) {
+        setSubmitErrorModal(`Invalid hyperparameter: ${err}. Please correct it before submitting.`);
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        name: rfdetrBboxSahiForm.name.trim(),
+        category: 'vision',
+        taskType: `RF-DETR Object Detection (SAHI)`,
+        datasetId: targetDatasetId,
+        epochs: Number(rfdetrBboxSahiForm.epochs),
+        batchSize: Number(rfdetrBboxSahiForm.batchSize),
+        learningRate: Number(rfdetrBboxSahiForm.lr),
+        device: 'cuda',
+        submittedBy: user?.name || 'Staff ML Engineer',
+        submittedById: user?.id,
+        description: rfdetrBboxSahiForm.description,
+        hyperparameters: {
+          template: 'rfdetr_bbox_sahi',
+          model_architecture: rfdetrBboxSahiForm.bboxModel,
+          run_name: rfdetrBboxSahiForm.runName || `${rfdetrBboxSahiForm.bboxModel.replace(/\s+/g, '_')}_Training`,
+          epochs: Number(rfdetrBboxSahiForm.epochs),
+          batch_size: Number(rfdetrBboxSahiForm.batchSize),
+          grad_accum_steps: Number(rfdetrBboxSahiForm.gradAccumSteps),
+          lr: Number(rfdetrBboxSahiForm.lr),
+          device: 'cuda',
+          val_interval: Number(rfdetrBboxSahiForm.valInterval),
+          save_interval: Number(rfdetrBboxSahiForm.saveInterval),
+          early_stopping: rfdetrBboxSahiForm.earlyStopping,
+          early_stopping_patience: Number(rfdetrBboxSahiForm.earlyStoppingPatience),
+          // SAHI Slicing Configuration
+          sahi: true,
+          sliceCols: Number(rfdetrBboxSahiForm.sliceCols),
+          sliceRows: Number(rfdetrBboxSahiForm.sliceRows),
+          overlapType: rfdetrBboxSahiForm.overlapType,
+          overlapPixelX: Number(rfdetrBboxSahiForm.overlapPixelX),
+          overlapPixelY: Number(rfdetrBboxSahiForm.overlapPixelY),
+          overlapRatioX: Number(rfdetrBboxSahiForm.overlapRatioX),
+          overlapRatioY: Number(rfdetrBboxSahiForm.overlapRatioY),
+          minBoxSize: Number(rfdetrBboxSahiForm.minBoxSize),
+        }
+      };
+
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        await loadData();
+        setUserFilter('all');
+        setSubTab('queue');
+        setSubmitView('templates');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setSubmitErrorModal(data.error || 'Failed to submit RF-DETR SAHI BBox job to queue');
+      }
+    } catch (err: any) {
+      console.error('Failed to submit RF-DETR SAHI BBox job:', err);
+      setSubmitErrorModal(err.message || 'Network or server error encountered while submitting RF-DETR SAHI BBox job');
     } finally {
       setIsSubmitting(false);
     }
@@ -1567,7 +1902,7 @@ dataset = version.download("coco")`
               </div>
 
               {/* Template Blocks Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full">
                 
                 {/* 1. Instance Segmentation (Primary Focus) */}
                 <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-blue-500/80 hover:shadow-xl hover:border-blue-600 transition-all flex flex-col justify-between relative group">
@@ -1593,7 +1928,7 @@ dataset = version.download("coco")`
                   <div className="mt-6 pt-4 border-t border-slate-100">
                     <button
                       onClick={() => setSubmitView('segmentation')}
-                      className="w-full py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 group-hover:translate-x-0.5"
+                      className="w-full py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 group-hover:translate-x-0.5 cursor-pointer"
                     >
                       <span>Choose template</span>
                       <ChevronRight className="w-4 h-4" />
@@ -1608,7 +1943,7 @@ dataset = version.download("coco")`
                       <Crosshair className="w-6 h-6" />
                     </div>
 
-                    <h3 className="text-xl font-extrabold text-slate-900">Object Detection (BBox)</h3>
+                    <h3 className="text-xl font-extrabold text-slate-900">Object Detection</h3>
 
                     <div className="mt-5 space-y-2 text-xs bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
                       <div className="flex items-center justify-between text-slate-700">
@@ -1665,6 +2000,80 @@ dataset = version.download("coco")`
                   </div>
                 </div>
 
+                {/* 4. RF-DETR Instance Segmentation (SAHI) */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-purple-500/80 hover:shadow-xl hover:border-purple-600 transition-all flex flex-col justify-between relative group">
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 group-hover:scale-105 transition-transform">
+                        <Scissors className="w-6 h-6" />
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200">
+                        SAHI Slicing
+                      </span>
+                    </div>
+
+                    <h3 className="text-xl font-extrabold text-slate-900">Instance Segmentation</h3>
+
+                    <div className="mt-4 space-y-2 text-xs bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400 font-medium">Model Architecture:</span>
+                        <strong className="text-purple-700">RFDETRSeg</strong>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400 font-medium">Variants:</span>
+                        <strong className="text-slate-800">Nano, Small, Med, Large, Preview</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-100">
+                    <button
+                      onClick={() => setSubmitView('segmentation_sahi')}
+                      className="w-full py-3 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-2 group-hover:translate-x-0.5 cursor-pointer"
+                    >
+                      <span>Choose template</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. RF-DETR Object Detection (SAHI) */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border-2 border-amber-500/80 hover:shadow-xl hover:border-amber-600 transition-all flex flex-col justify-between relative group">
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 group-hover:scale-105 transition-transform">
+                        <Crosshair className="w-6 h-6" />
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                        SAHI Slicing
+                      </span>
+                    </div>
+
+                    <h3 className="text-xl font-extrabold text-slate-900">Object Detection</h3>
+
+                    <div className="mt-4 space-y-2 text-xs bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400 font-medium">Model Architecture:</span>
+                        <strong className="text-amber-700">RFDETR BBox</strong>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400 font-medium">Variants:</span>
+                        <strong className="text-slate-800">Nano, Small, Med, Base, Large</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-100">
+                    <button
+                      onClick={() => setSubmitView('detection_sahi')}
+                      className="w-full py-3 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-2 group-hover:translate-x-0.5 cursor-pointer"
+                    >
+                      <span>Choose template</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
               </div>
             </div>
           )}
@@ -1695,9 +2104,6 @@ dataset = version.download("coco")`
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
                   Configure RF-DETR Instance Segmentation
                 </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Adjust training hyperparameters supported by the RF-DETR training pipeline on the workstation GPU.
-                </p>
               </div>
 
               <form onSubmit={handleRfdetrSubmit} className="space-y-6">
@@ -1742,7 +2148,7 @@ dataset = version.download("coco")`
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        RF-DETR Model Architecture *
+                        Model Architecture *
                       </label>
                       <select
                         value={rfdetrForm.segModel}
@@ -1773,7 +2179,7 @@ dataset = version.download("coco")`
                       </div>
 
                       {(() => {
-                        const currentDs = datasets.find((d) => d.id === (rfdetrForm.datasetId || datasets[0]?.id));
+                        const currentDs = datasets.find((d) => d.id === rfdetrForm.datasetId);
                         const isIncompatible = currentDs && (currentDs.domain === 'Image Classification' || currentDs.format === 'images_folder' || currentDs.domain === 'Tabular' || currentDs.format === 'csv');
 
                         if (!currentDs) {
@@ -1831,6 +2237,7 @@ dataset = version.download("coco")`
                                 <span>Format Incompatible: {currentDs.name} is formatted for {currentDs.domain || currentDs.format}. RF-DETR requires Instance Segmentation annotations.</span>
                               </div>
                             )}
+
                           </div>
                         );
                       })()}
@@ -1844,12 +2251,10 @@ dataset = version.download("coco")`
                     <div className="flex items-center gap-2">
                       <Sliders className="w-4 h-4 text-blue-600" />
                       <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
-                        2. RF-DETR Hyperparameters
+                        2. Training Hyperparameters
                       </h3>
                     </div>
-                    <span className="text-[11px] font-semibold text-slate-400">
-                      Optimized for local workstation GPU
-                    </span>
+ 
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2077,7 +2482,7 @@ dataset = version.download("coco")`
                     className="px-8 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 hover:scale-[1.02]"
                   >
                     <Play className="w-4 h-4 fill-white" />
-                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit RF-DETR Job'}</span>
+                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit Job'}</span>
                   </button>
                 </div>
               </form>
@@ -2108,11 +2513,8 @@ dataset = version.download("coco")`
               {/* Form Title & Subtitle */}
               <div>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-                  Configure RF-DETR Object Detection (BBox)
+                  Configure RF-DETR Object Detection
                 </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Adjust bounding box training hyperparameters supported by the RF-DETR object detection pipeline on the workstation GPU.
-                </p>
               </div>
 
               <form onSubmit={handleRfdetrBboxSubmit} className="space-y-6">
@@ -2157,7 +2559,7 @@ dataset = version.download("coco")`
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        RF-DETR BBox Model Architecture *
+                        Model Architecture *
                       </label>
                       <select
                         value={rfdetrBboxForm.bboxModel}
@@ -2188,7 +2590,7 @@ dataset = version.download("coco")`
                       </div>
 
                       {(() => {
-                        const currentDs = datasets.find((d) => d.id === (rfdetrBboxForm.datasetId || datasets[0]?.id));
+                        const currentDs = datasets.find((d) => d.id === rfdetrBboxForm.datasetId);
                         const isIncompatible = currentDs && (currentDs.domain === 'Image Classification' || currentDs.format === 'images_folder' || currentDs.domain === 'Tabular' || currentDs.format === 'csv');
 
                         if (!currentDs) {
@@ -2246,6 +2648,7 @@ dataset = version.download("coco")`
                                 <span>Format Incompatible: {currentDs.name} is formatted for {currentDs.domain || currentDs.format}. RF-DETR Object Detection requires bounding box annotations.</span>
                               </div>
                             )}
+
                           </div>
                         );
                       })()}
@@ -2259,12 +2662,9 @@ dataset = version.download("coco")`
                     <div className="flex items-center gap-2">
                       <Sliders className="w-4 h-4 text-emerald-600" />
                       <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
-                        2. RF-DETR Hyperparameters
+                        2. Training Hyperparameters
                       </h3>
                     </div>
-                    <span className="text-[11px] font-semibold text-slate-400">
-                      Optimized for local workstation GPU
-                    </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2491,7 +2891,7 @@ dataset = version.download("coco")`
                     className="px-8 py-3 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 hover:scale-[1.02] cursor-pointer"
                   >
                     <Play className="w-4 h-4 fill-white" />
-                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit RF-DETR BBox Job'}</span>
+                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit Job'}</span>
                   </button>
                 </div>
               </form>
@@ -2524,9 +2924,6 @@ dataset = version.download("coco")`
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
                   Configure MobileNetV4 Image Classification
                 </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Adjust image classification hyperparameters for MobileNetV4 architectures utilizing the timm library on the workstation GPU.
-                </p>
               </div>
 
               <form onSubmit={handleClassificationSubmit} className="space-y-6">
@@ -2571,7 +2968,7 @@ dataset = version.download("coco")`
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        MobileNetV4 Architecture (timm) *
+                        Model Architecture *
                       </label>
                       <select
                         value={classificationForm.modelArchitecture}
@@ -2602,7 +2999,7 @@ dataset = version.download("coco")`
                       </div>
 
                       {(() => {
-                        const currentDs = datasets.find((d) => d.id === (classificationForm.datasetId || datasets[0]?.id));
+                        const currentDs = datasets.find((d) => d.id === classificationForm.datasetId);
                         const isIncompatible = currentDs && (currentDs.domain === 'Instance Segmentation / Object Detection' || currentDs.format === 'coco' || currentDs.format === 'yolo' || currentDs.domain === 'Tabular' || currentDs.format === 'csv');
 
                         if (!currentDs) {
@@ -2660,6 +3057,7 @@ dataset = version.download("coco")`
                                 <span>Format Incompatible: {currentDs.name} is formatted for {currentDs.domain || currentDs.format}. Image Classification requires class subfolders (train/valid per class).</span>
                               </div>
                             )}
+
                           </div>
                         );
                       })()}
@@ -2673,12 +3071,9 @@ dataset = version.download("coco")`
                     <div className="flex items-center gap-2">
                       <Sliders className="w-4 h-4 text-indigo-600" />
                       <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
-                        2. MobileNetV4 Training Hyperparameters
+                        2. Training Hyperparameters
                       </h3>
                     </div>
-                    <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
-                      timm PyTorch Engine
-                    </span>
                   </div>
 
                   {/* Core Hyperparameters Grid */}
@@ -2815,9 +3210,12 @@ dataset = version.download("coco")`
                       </select>
                       <span className="text-[10px] text-slate-400 mt-1 block">Input crop size for network</span>
                     </div>
+                  </div>
 
+                  {/* Label Smoothing & Pretrained Weights */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                     {/* Label Smoothing */}
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-center">
                       <label className="block text-xs font-bold text-slate-800 mb-1">
                         Label Smoothing (<code className="text-indigo-600 font-mono">label_smoothing</code>)
                       </label>
@@ -2841,10 +3239,8 @@ dataset = version.download("coco")`
                         <span className="text-[10px] text-slate-400 mt-1 block">Regularization epsilon (Default: 0.1)</span>
                       )}
                     </div>
-                  </div>
 
-                  {/* Pretrained Weights & Early Stopping */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    {/* Pretrained Weights */}
                     <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer select-none hover:bg-slate-100 transition-colors">
                       <input
                         type="checkbox"
@@ -2857,7 +3253,10 @@ dataset = version.download("coco")`
                         <span className="text-[10px] text-slate-400">Initialize MobileNetV4 backbone with ImageNet-1k pretrained weights</span>
                       </div>
                     </label>
+                  </div>
 
+                  {/* Early Stopping & Patience Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer select-none hover:bg-slate-100 transition-colors">
                       <input
                         type="checkbox"
@@ -2870,6 +3269,34 @@ dataset = version.download("coco")`
                         <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
                       </div>
                     </label>
+
+                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700">
+                          Patience (<code className="text-indigo-600 font-mono">early_stopping_patience</code>)
+                        </label>
+                        <span className="text-[10px] text-slate-400">Epochs to wait before early stop</span>
+                        {classificationForm.earlyStopping && getHyperparamError('earlyStoppingPatience', classificationForm.earlyStoppingPatience) && (
+                          <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-0.5">
+                            <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                            <span>{getHyperparamError('earlyStoppingPatience', classificationForm.earlyStoppingPatience)}</span>
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={classificationForm.earlyStoppingPatience}
+                        onChange={(e) => setClassificationForm({ ...classificationForm, earlyStoppingPatience: e.target.value })}
+                        className={`w-20 px-3 py-1.5 rounded-xl border text-xs font-bold bg-white text-center transition-all ${
+                          classificationForm.earlyStopping && getHyperparamError('earlyStoppingPatience', classificationForm.earlyStoppingPatience)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-indigo-500/20 text-slate-800'
+                        }`}
+                        disabled={!classificationForm.earlyStopping}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -2889,7 +3316,1111 @@ dataset = version.download("coco")`
                     className="px-8 py-3 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 hover:scale-[1.02] cursor-pointer"
                   >
                     <Play className="w-4 h-4 fill-white" />
-                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit MobileNetV4 Classification Job'}</span>
+                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit Job'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* VIEW D: INSTANCE SEGMENTATION (SAHI) PAGE */}
+          {submitView === 'segmentation_sahi' && (
+            <div className="w-full space-y-6">
+              {/* Top Navigation Bar: Back Button on Left Top */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+                <button
+                  onClick={() => setSubmitView('templates')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs border border-slate-200 shadow-sm transition-all self-start cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-slate-500" />
+                  <span>Back to Templates</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">Template:</span>
+                  <span className="text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                    Instance Segmentation (SAHI)
+                  </span>
+                </div>
+              </div>
+
+              {/* Form Title & Subtitle */}
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                  Configure RF-DETR Instance Segmentation (SAHI)
+                </h2>
+              </div>
+
+              <form onSubmit={handleRfdetrSegSahiSubmit} className="space-y-6">
+                {/* SECTION 1: EXPERIMENT & DATASET SELECTION */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-slate-100 space-y-5">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Scissors className="w-4 h-4 text-purple-600" />
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                      1. Experiment & Model Architecture Selection
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Experiment / Project Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Lens Defect SAHI"
+                        value={rfdetrSegSahiForm.name}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, name: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Run Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. RFDETRSeg_SAHI_Run"
+                        value={rfdetrSegSahiForm.runName}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, runName: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Model Architecture *
+                      </label>
+                      <select
+                        value={rfdetrSegSahiForm.segModel}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, segModel: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-purple-500/20"
+                      >
+                        <option value="RFDETRSegMedium">RFDETRSegMedium</option>
+                        <option value="RFDETRSegSmall">RFDETRSegSmall</option>
+                        <option value="RFDETRSegNano">RFDETRSegNano</option>
+                        <option value="RFDETRSegLarge">RFDETRSegLarge</option>
+                        <option value="RFDETRSegPreview">RFDETRSegPreview</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-bold text-slate-700">
+                          Target Dataset *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => openTargetDatasetPicker('rfdetr_seg_sahi')}
+                          className="text-[11px] text-purple-600 hover:text-purple-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5" />
+                          <span>Browse</span>
+                        </button>
+                      </div>
+
+                      {(() => {
+                        const currentDs = datasets.find((d) => d.id === rfdetrSegSahiForm.datasetId);
+                        const isIncompatible = currentDs && (currentDs.domain === 'Image Classification' || currentDs.format === 'images_folder' || currentDs.domain === 'Tabular' || currentDs.format === 'csv');
+
+                        if (!currentDs) {
+                          return (
+                            <div
+                              onClick={() => openTargetDatasetPicker('rfdetr_seg_sahi')}
+                              className="p-3 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 hover:border-purple-400 hover:bg-purple-50/20 transition-all cursor-pointer flex items-center justify-between group"
+                            >
+                              <span className="text-xs font-bold text-slate-400 group-hover:text-slate-700 flex items-center gap-2">
+                                <FolderOpen className="w-4 h-4" />
+                                Select a dataset...
+                              </span>
+                              <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-xl">Choose</span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-1.5">
+                            <div
+                              onClick={() => openTargetDatasetPicker('rfdetr_seg_sahi')}
+                              className="p-2.5 sm:p-3 rounded-2xl border border-slate-200 bg-slate-50/50 hover:border-purple-400 hover:bg-purple-50/20 transition-all cursor-pointer shadow-xs flex items-center justify-between gap-3 group"
+                            >
+                              <div className="min-w-0 flex items-center gap-2.5">
+                                <div className="p-2 rounded-xl bg-purple-100/70 text-purple-700 shrink-0">
+                                  <FolderOpen className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-xs text-slate-900 group-hover:text-purple-700 truncate">{currentDs.name}</span>
+                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                      {currentDs.domain || currentDs.format}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 mt-0.5 truncate font-medium">
+                                    {currentDs.sampleCount.toLocaleString()} samples • {currentDs.fileSizeMB} MB
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openTargetDatasetPicker('rfdetr_seg_sahi');
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-white group-hover:bg-purple-600 text-slate-700 group-hover:text-white border border-slate-200 group-hover:border-transparent text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer"
+                              >
+                                Change
+                              </button>
+                            </div>
+
+                            {isIncompatible && (
+                              <div className="mt-1.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-1.5 font-medium">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span>Format Incompatible: {currentDs.name} is formatted for {currentDs.domain || currentDs.format}. RF-DETR SAHI Segmentation requires polygon segmentation masks.</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: SAHI SLICING PARAMETERS */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-purple-100 space-y-5">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-xl bg-purple-50 text-purple-600">
+                        <Grid className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                          2. SAHI Slicing Configuration (Slicing Aided Hyper Inference)
+                        </h3>
+                      </div>
+                    </div>
+                    {(() => {
+                      const cur = datasets.find((d) => d.id === rfdetrSegSahiForm.datasetId);
+                      return (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                          Auto-Catalog: "{cur ? `${cur.name.replace(/\s*\(SAHI\)$/i, '')} (SAHI)` : '{original} (SAHI)'}"
+                        </span>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Slicing Controls Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    {/* 1. Target Slices: Columns */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Target Slices (Num of Columns) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        required
+                        value={rfdetrSegSahiForm.sliceCols}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, sliceCols: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20"
+                        placeholder="e.g. 2"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Number of horizontal slice divisions</span>
+                    </div>
+
+                    {/* 1. Target Slices: Rows */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Target Slices (Num of Rows) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        required
+                        value={rfdetrSegSahiForm.sliceRows}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, sliceRows: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20"
+                        placeholder="e.g. 2"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Number of vertical slice divisions</span>
+                    </div>
+
+                    {/* 2. Overlap Dropdown */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Overlap Mode *
+                      </label>
+                      <select
+                        value={rfdetrSegSahiForm.overlapType}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, overlapType: e.target.value as any })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-purple-500/20"
+                      >
+                        <option value="pixel">Pixel (px)</option>
+                        <option value="percentage">Percentage (%)</option>
+                      </select>
+                      <span className="text-[10px] text-slate-400 mt-1 block">Measurement unit for tile overlap</span>
+                    </div>
+
+                    {/* 4. Min Box Size */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Min Box / Mask Dimension (px)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={rfdetrSegSahiForm.minBoxSize}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, minBoxSize: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20"
+                        placeholder="e.g. 2"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Filter out clipped fragments below this size</span>
+                    </div>
+                  </div>
+
+                  {/* Overlap Values conditional on pixel vs percentage */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-3 border-t border-slate-100">
+                    {rfdetrSegSahiForm.overlapType === 'pixel' ? (
+                      <>
+                        {/* 3.a. Overlap pixel X */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.a. Overlap Pixel Width (X) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              required
+                              value={rfdetrSegSahiForm.overlapPixelX}
+                              onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, overlapPixelX: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20 pr-10"
+                              placeholder="e.g. 80"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">px</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap between adjacent tiles in pixels</span>
+                        </div>
+
+                        {/* 3.a. Overlap pixel Y */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.a. Overlap Pixel Height (Y) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              required
+                              value={rfdetrSegSahiForm.overlapPixelY}
+                              onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, overlapPixelY: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20 pr-10"
+                              placeholder="e.g. 80"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">px</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Vertical overlap between adjacent tiles in pixels</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* 3.b. Overlap percentage X */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.b. Overlap Percentage Width (X) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="50"
+                              required
+                              value={rfdetrSegSahiForm.overlapRatioX}
+                              onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, overlapRatioX: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20 pr-10"
+                              placeholder="e.g. 20"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap ratio percentage relative to tile width</span>
+                        </div>
+
+                        {/* 3.b. Overlap percentage Y */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.b. Overlap Percentage Height (Y) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="50"
+                              required
+                              value={rfdetrSegSahiForm.overlapRatioY}
+                              onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, overlapRatioY: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20 pr-10"
+                              placeholder="e.g. 20"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Vertical overlap ratio percentage relative to tile height</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* SECTION 3: TRAINING HYPERPARAMETERS */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-slate-100 space-y-5">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Sliders className="w-4 h-4 text-purple-600" />
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                      3. Training Hyperparameters
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {/* Epochs */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Epochs (<code className="text-purple-600 font-mono">epochs</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={rfdetrSegSahiForm.epochs}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, epochs: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('epochs', rfdetrSegSahiForm.epochs)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Total training epochs (Default: 100)</span>
+                    </div>
+
+                    {/* Batch Size */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Batch Size (<code className="text-purple-600 font-mono">batch_size</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="64"
+                        value={rfdetrSegSahiForm.batchSize}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, batchSize: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('batchSize', rfdetrSegSahiForm.batchSize)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Per-GPU batch size (Default: 4)</span>
+                    </div>
+
+                    {/* Gradient Accumulation Steps */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Grad Accum (<code className="text-purple-600 font-mono">grad_accum_steps</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="32"
+                        value={rfdetrSegSahiForm.gradAccumSteps}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, gradAccumSteps: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('gradAccumSteps', rfdetrSegSahiForm.gradAccumSteps)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Accumulation steps (Default: 4)</span>
+                    </div>
+
+                    {/* Learning Rate */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Learning Rate (<code className="text-purple-600 font-mono">lr</code>)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={rfdetrSegSahiForm.lr}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, lr: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('lr', rfdetrSegSahiForm.lr)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Base optimizer rate (Default: 1e-4)</span>
+                    </div>
+
+                    {/* Validation Interval */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Validation Interval (<code className="text-purple-600 font-mono">val_interval</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={rfdetrSegSahiForm.valInterval}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, valInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('valInterval', rfdetrSegSahiForm.valInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Evaluate every N epochs</span>
+                    </div>
+
+                    {/* Save Interval */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Save Interval (<code className="text-purple-600 font-mono">save_interval</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={rfdetrSegSahiForm.saveInterval}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, saveInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('saveInterval', rfdetrSegSahiForm.saveInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Save checkpoint every N epochs</span>
+                    </div>
+                  </div>
+
+                  {/* Early Stopping & Patience Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer select-none hover:bg-slate-100 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={rfdetrSegSahiForm.earlyStopping}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, earlyStopping: e.target.checked })}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Early Stopping (<code className="text-purple-600 font-mono">early_stopping</code>)</span>
+                        <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
+                      </div>
+                    </label>
+
+                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700">
+                          Patience (<code className="text-purple-600 font-mono">early_stopping_patience</code>)
+                        </label>
+                        <span className="text-[10px] text-slate-400">Epochs to wait before early stop</span>
+                        {rfdetrSegSahiForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrSegSahiForm.earlyStoppingPatience) && (
+                          <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-0.5">
+                            <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                            <span>{getHyperparamError('earlyStoppingPatience', rfdetrSegSahiForm.earlyStoppingPatience)}</span>
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={rfdetrSegSahiForm.earlyStoppingPatience}
+                        onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, earlyStoppingPatience: e.target.value })}
+                        className={`w-20 px-3 py-1.5 rounded-xl border text-xs font-bold bg-white text-center transition-all ${
+                          rfdetrSegSahiForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrSegSahiForm.earlyStoppingPatience)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-purple-500/20 text-slate-800'
+                        }`}
+                        disabled={!rfdetrSegSahiForm.earlyStopping}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* BOTTOM ACTION BAR */}
+                <div className="flex items-center justify-between gap-4 p-4 bg-white rounded-3xl border border-slate-200 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setSubmitView('templates')}
+                    className="px-5 py-2.5 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-8 py-3 rounded-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 hover:scale-[1.02] cursor-pointer"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit Job'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* VIEW E: OBJECT DETECTION (SAHI) PAGE */}
+          {submitView === 'detection_sahi' && (
+            <div className="w-full space-y-6">
+              {/* Top Navigation Bar: Back Button on Left Top */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+                <button
+                  onClick={() => setSubmitView('templates')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs border border-slate-200 shadow-sm transition-all self-start cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-slate-500" />
+                  <span>Back to Templates</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">Template:</span>
+                  <span className="text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    Object Detection (SAHI)
+                  </span>
+                </div>
+              </div>
+
+              {/* Form Title & Subtitle */}
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                  Configure RF-DETR Object Detection (SAHI)
+                </h2>
+              </div>
+
+              <form onSubmit={handleRfdetrBboxSahiSubmit} className="space-y-6">
+                {/* SECTION 1: EXPERIMENT & DATASET SELECTION */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-slate-100 space-y-5">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Crosshair className="w-4 h-4 text-amber-600" />
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                      1. Experiment & Model Architecture Selection
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Experiment / Project Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. PCB Components SAHI"
+                        value={rfdetrBboxSahiForm.name}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, name: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Run Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. RFDETR_SAHI_BBox_Run"
+                        value={rfdetrBboxSahiForm.runName}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, runName: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Model Architecture *
+                      </label>
+                      <select
+                        value={rfdetrBboxSahiForm.bboxModel}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, bboxModel: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-purple-500/20"
+                      >
+                        <option value="RFDETRSmall">RFDETRSmall</option>
+                        <option value="RFDETRMedium">RFDETRMedium</option>
+                        <option value="RFDETRNano">RFDETRNano</option>
+                        <option value="RFDETRBase">RFDETRBase</option>
+                        <option value="RFDETRLarge">RFDETRLarge</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-bold text-slate-700">
+                          Target Dataset *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => openTargetDatasetPicker('rfdetr_bbox_sahi')}
+                          className="text-[11px] text-amber-600 hover:text-amber-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5" />
+                          <span>Browse</span>
+                        </button>
+                      </div>
+
+                      {(() => {
+                        const currentDs = datasets.find((d) => d.id === rfdetrBboxSahiForm.datasetId);
+                        const isIncompatible = currentDs && (currentDs.domain === 'Image Classification' || currentDs.format === 'images_folder' || currentDs.domain === 'Tabular' || currentDs.format === 'csv');
+
+                        if (!currentDs) {
+                          return (
+                            <div
+                              onClick={() => openTargetDatasetPicker('rfdetr_bbox_sahi')}
+                              className="p-3 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 hover:border-amber-400 hover:bg-amber-50/20 transition-all cursor-pointer flex items-center justify-between group"
+                            >
+                              <span className="text-xs font-bold text-slate-400 group-hover:text-slate-700 flex items-center gap-2">
+                                <FolderOpen className="w-4 h-4" />
+                                Select a dataset...
+                              </span>
+                              <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-xl">Choose</span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-1.5">
+                            <div
+                              onClick={() => openTargetDatasetPicker('rfdetr_bbox_sahi')}
+                              className="p-2.5 sm:p-3 rounded-2xl border border-slate-200 bg-slate-50/50 hover:border-amber-400 hover:bg-amber-50/20 transition-all cursor-pointer shadow-xs flex items-center justify-between gap-3 group"
+                            >
+                              <div className="min-w-0 flex items-center gap-2.5">
+                                <div className="p-2 rounded-xl bg-amber-100/70 text-amber-800 shrink-0">
+                                  <FolderOpen className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-xs text-slate-900 group-hover:text-amber-700 truncate">{currentDs.name}</span>
+                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+                                      {currentDs.domain || currentDs.format}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 mt-0.5 truncate font-medium">
+                                    {currentDs.sampleCount.toLocaleString()} samples • {currentDs.fileSizeMB} MB
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openTargetDatasetPicker('rfdetr_bbox_sahi');
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-white group-hover:bg-amber-600 text-slate-700 group-hover:text-white border border-slate-200 group-hover:border-transparent text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer"
+                              >
+                                Change
+                              </button>
+                            </div>
+
+                            {isIncompatible && (
+                              <div className="mt-1.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-1.5 font-medium">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span>Format Incompatible: {currentDs.name} is formatted for {currentDs.domain || currentDs.format}. RF-DETR SAHI Detection requires bounding box annotations.</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: SAHI SLICING PARAMETERS */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-amber-100 space-y-5">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-xl bg-amber-50 text-amber-600">
+                        <Grid className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                          2. SAHI Slicing Configuration (Slicing Aided Hyper Inference)
+                        </h3>
+                      </div>
+                    </div>
+                    {(() => {
+                      const cur = datasets.find((d) => d.id === rfdetrBboxSahiForm.datasetId);
+                      return (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          Auto-Catalog: "{cur ? `${cur.name.replace(/\s*\(SAHI\)$/i, '')} (SAHI)` : '{original} (SAHI)'}"
+                        </span>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Slicing Controls Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    {/* 1. Target Slices: Columns */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Target Slices (Num of Columns) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        required
+                        value={rfdetrBboxSahiForm.sliceCols}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, sliceCols: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20"
+                        placeholder="e.g. 2"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Number of horizontal slice divisions</span>
+                    </div>
+
+                    {/* 1. Target Slices: Rows */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Target Slices (Num of Rows) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        required
+                        value={rfdetrBboxSahiForm.sliceRows}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, sliceRows: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20"
+                        placeholder="e.g. 2"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Number of vertical slice divisions</span>
+                    </div>
+
+                    {/* 2. Overlap Dropdown */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Overlap Mode *
+                      </label>
+                      <select
+                        value={rfdetrBboxSahiForm.overlapType}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, overlapType: e.target.value as any })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-amber-500/20"
+                      >
+                        <option value="pixel">Pixel (px)</option>
+                        <option value="percentage">Percentage (%)</option>
+                      </select>
+                      <span className="text-[10px] text-slate-400 mt-1 block">Measurement unit for tile overlap</span>
+                    </div>
+
+                    {/* 4. Min Box Size */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Min Box Dimension (px)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={rfdetrBboxSahiForm.minBoxSize}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, minBoxSize: e.target.value })}
+                        className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20"
+                        placeholder="e.g. 2"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Filter out clipped fragments below this size</span>
+                    </div>
+                  </div>
+
+                  {/* Overlap Values conditional on pixel vs percentage */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-3 border-t border-slate-100">
+                    {rfdetrBboxSahiForm.overlapType === 'pixel' ? (
+                      <>
+                        {/* 3.a. Overlap pixel X */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.a. Overlap Pixel Width (X) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              required
+                              value={rfdetrBboxSahiForm.overlapPixelX}
+                              onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, overlapPixelX: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 pr-10"
+                              placeholder="e.g. 80"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">px</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap between adjacent tiles in pixels</span>
+                        </div>
+
+                        {/* 3.a. Overlap pixel Y */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.a. Overlap Pixel Height (Y) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              required
+                              value={rfdetrBboxSahiForm.overlapPixelY}
+                              onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, overlapPixelY: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 pr-10"
+                              placeholder="e.g. 80"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">px</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Vertical overlap between adjacent tiles in pixels</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* 3.b. Overlap percentage X */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.b. Overlap Percentage Width (X) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="50"
+                              required
+                              value={rfdetrBboxSahiForm.overlapRatioX}
+                              onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, overlapRatioX: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 pr-10"
+                              placeholder="e.g. 20"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap ratio percentage relative to tile width</span>
+                        </div>
+
+                        {/* 3.b. Overlap percentage Y */}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            3.b. Overlap Percentage Height (Y) *
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="50"
+                              required
+                              value={rfdetrBboxSahiForm.overlapRatioY}
+                              onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, overlapRatioY: e.target.value })}
+                              className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-amber-500/20 pr-10"
+                              placeholder="e.g. 20"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Vertical overlap ratio percentage relative to tile height</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* SECTION 3: TRAINING HYPERPARAMETERS */}
+                <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-slate-100 space-y-5">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Sliders className="w-4 h-4 text-amber-600" />
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                      3. Training Hyperparameters
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {/* Epochs */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Epochs (<code className="text-amber-600 font-mono">epochs</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={rfdetrBboxSahiForm.epochs}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, epochs: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('epochs', rfdetrBboxSahiForm.epochs)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Total training epochs (Default: 100)</span>
+                    </div>
+
+                    {/* Batch Size */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Batch Size (<code className="text-amber-600 font-mono">batch_size</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="64"
+                        value={rfdetrBboxSahiForm.batchSize}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, batchSize: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('batchSize', rfdetrBboxSahiForm.batchSize)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Per-GPU batch size (Default: 4)</span>
+                    </div>
+
+                    {/* Gradient Accumulation Steps */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Grad Accum (<code className="text-amber-600 font-mono">grad_accum_steps</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="32"
+                        value={rfdetrBboxSahiForm.gradAccumSteps}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, gradAccumSteps: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('gradAccumSteps', rfdetrBboxSahiForm.gradAccumSteps)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Accumulation steps (Default: 4)</span>
+                    </div>
+
+                    {/* Learning Rate */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Learning Rate (<code className="text-amber-600 font-mono">lr</code>)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={rfdetrBboxSahiForm.lr}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, lr: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('lr', rfdetrBboxSahiForm.lr)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Base optimizer rate (Default: 1e-4)</span>
+                    </div>
+
+                    {/* Validation Interval */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Validation Interval (<code className="text-amber-600 font-mono">val_interval</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={rfdetrBboxSahiForm.valInterval}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, valInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('valInterval', rfdetrBboxSahiForm.valInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Evaluate every N epochs</span>
+                    </div>
+
+                    {/* Save Interval */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Save Interval (<code className="text-amber-600 font-mono">save_interval</code>)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={rfdetrBboxSahiForm.saveInterval}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, saveInterval: e.target.value })}
+                        className={`w-full px-3 py-2 rounded-xl border text-xs font-bold bg-white transition-all ${
+                          getHyperparamError('saveInterval', rfdetrBboxSahiForm.saveInterval)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">Save checkpoint every N epochs</span>
+                    </div>
+                  </div>
+
+                  {/* Early Stopping & Patience Controls */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer select-none hover:bg-slate-100 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={rfdetrBboxSahiForm.earlyStopping}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, earlyStopping: e.target.checked })}
+                        className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Early Stopping (<code className="text-amber-600 font-mono">early_stopping</code>)</span>
+                        <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
+                      </div>
+                    </label>
+
+                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700">
+                          Patience (<code className="text-amber-600 font-mono">early_stopping_patience</code>)
+                        </label>
+                        <span className="text-[10px] text-slate-400">Epochs to wait before early stop</span>
+                        {rfdetrBboxSahiForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrBboxSahiForm.earlyStoppingPatience) && (
+                          <span className="text-[10px] text-rose-500 font-semibold flex items-center gap-1 mt-0.5">
+                            <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                            <span>{getHyperparamError('earlyStoppingPatience', rfdetrBboxSahiForm.earlyStoppingPatience)}</span>
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={rfdetrBboxSahiForm.earlyStoppingPatience}
+                        onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, earlyStoppingPatience: e.target.value })}
+                        className={`w-20 px-3 py-1.5 rounded-xl border text-xs font-bold bg-white text-center transition-all ${
+                          rfdetrBboxSahiForm.earlyStopping && getHyperparamError('earlyStoppingPatience', rfdetrBboxSahiForm.earlyStoppingPatience)
+                            ? 'border-rose-400 focus:ring-2 focus:ring-rose-400/20 text-rose-700 bg-rose-50/20'
+                            : 'border-slate-200 focus:ring-2 focus:ring-amber-500/20 text-slate-800'
+                        }`}
+                        disabled={!rfdetrBboxSahiForm.earlyStopping}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* BOTTOM ACTION BAR */}
+                <div className="flex items-center justify-between gap-4 p-4 bg-white rounded-3xl border border-slate-200 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setSubmitView('templates')}
+                    className="px-5 py-2.5 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-8 py-3 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 hover:scale-[1.02] cursor-pointer"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>{isSubmitting ? 'Submitting to Queue...' : 'Submit Job'}</span>
                   </button>
                 </div>
               </form>
@@ -2934,10 +4465,6 @@ dataset = version.download("coco")`
                 </div>
               </div>
 
-              <p className="text-xs text-slate-400 mb-4">
-                Supported formats: ZIP archive with train/valid annotations or class directories
-              </p>
-
               {uploadSuccess && (
                 <div className="mb-4 p-3 rounded-2xl bg-emerald-50 text-emerald-800 text-xs font-semibold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -2972,9 +4499,6 @@ dataset = version.download("coco")`
                         placeholder={`!pip install roboflow\n\nfrom roboflow import Roboflow\nrf = Roboflow(api_key="YOUR_KEY")\nproject = rf.workspace("workspace-slug").project("project-slug")\nversion = project.version(1)\ndataset = version.download("coco")`}
                         className="w-full font-mono text-[11px] p-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 leading-relaxed"
                       />
-                      <span className="text-[10px] text-slate-400 mt-1 block">
-                        The server will automatically download the COCO annotations and extract classes and samples directly into local workstation storage.
-                      </span>
                     </div>
 
                     <div>
@@ -3033,46 +4557,7 @@ dataset = version.download("coco")`
                   </>
                 ) : (
                   <>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Dataset Name *</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Weld-Seam-Masks-v2"
-                        value={datasetForm.name}
-                        onChange={(e) => setDatasetForm({ ...datasetForm, name: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Dataset Domain *</label>
-                      <select
-                        value={datasetForm.domain}
-                        onChange={(e) => setDatasetForm({
-                          ...datasetForm,
-                          domain: e.target.value as DatasetDomain,
-                          category: e.target.value === 'Tabular' ? 'tabular' : 'vision'
-                        })}
-                        className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs bg-white font-semibold"
-                      >
-                        <option value="Instance Segmentation / Object Detection">Instance Segmentation / Object Detection</option>
-                        <option value="Image Classification">Image Classification</option>
-                        <option value="Tabular">Tabular</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
-                      <input
-                        type="text"
-                        placeholder="Dataset description or notes"
-                        value={datasetForm.description}
-                        onChange={(e) => setDatasetForm({ ...datasetForm, description: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500/20"
-                      />
-                    </div>
-
+                    
                     {/* File Dropzone */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -3132,6 +4617,46 @@ dataset = version.download("coco")`
                           }}
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Dataset Domain *</label>
+                      <select
+                        value={datasetForm.domain}
+                        onChange={(e) => setDatasetForm({
+                          ...datasetForm,
+                          domain: e.target.value as DatasetDomain,
+                          category: e.target.value === 'Tabular' ? 'tabular' : 'vision'
+                        })}
+                        className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs bg-white font-semibold"
+                      >
+                        <option value="Instance Segmentation / Object Detection">Instance Segmentation / Object Detection</option>
+                        <option value="Image Classification">Image Classification</option>
+                        <option value="Tabular">Tabular</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Dataset Name *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Weld-Seam-Masks-v2"
+                        value={datasetForm.name}
+                        onChange={(e) => setDatasetForm({ ...datasetForm, name: e.target.value })}
+                        className="w-full px-3.5 py-2 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
+                      <input
+                        type="text"
+                        placeholder="Dataset description or notes"
+                        value={datasetForm.description}
+                        onChange={(e) => setDatasetForm({ ...datasetForm, description: e.target.value })}
+                        className="w-full px-3.5 py-2 rounded-2xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500/20"
+                      />
                     </div>
 
                     <button
@@ -3378,37 +4903,6 @@ dataset = version.download("coco")`
       {/* SUB-TAB 4: TRAINING RESULTS */}
       {subTab === 'results' && (
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900">
-                Model Training Results & Evaluation Benchmarks
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                Inspect loss convergence curves, validation mask predictions, and download checkpoint bundles
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-              {userFilter !== 'all' && (
-                <button
-                  onClick={() => {
-                    setUserFilter('all');
-                    const comp = jobs.filter((j) => j.status === 'completed');
-                    setSelectedResultJob(comp[0] || null);
-                  }}
-                  className="text-xs text-blue-600 font-bold hover:underline cursor-pointer"
-                >
-                  Show All Users ({jobs.filter((j) => j.status === 'completed').length})
-                </button>
-              )}
-              {completedRuns.length > 0 && (
-                <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 self-start sm:self-auto">
-                  {completedRuns.length} Completed Runs {userFilter !== 'all' ? `by ${userFilter}` : 'Available'}
-                </span>
-              )}
-            </div>
-          </div>
-
           {completedRuns.length === 0 ? (
             <div className="bg-white rounded-3xl p-12 text-center border border-slate-100 shadow-sm my-6">
               <BarChart3 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -3451,8 +4945,8 @@ dataset = version.download("coco")`
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Left Column (4 cols): Completed Runs List */}
               <div className="lg:col-span-4 space-y-3">
-                <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider block px-1">
-                  Historical Completed Runs ({completedRuns.length})
+                <span className="text-xs font-semibold text-slate-500 tracking-wider block px-1">
+                  Historical Completed Runs {userFilter !== 'all' ? `(Filtered by: ${userFilter})` : ''}
                 </span>
 
                 <div className="space-y-2.5">
@@ -3571,9 +5065,6 @@ dataset = version.download("coco")`
                       <div>
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="text-xs font-bold text-slate-400">Run ID: {current.id}</span>
-                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                            Training Finished
-                          </span>
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
                             Submitted by: {current.submittedBy || 'ML Engineer'}
                           </span>
@@ -3593,6 +5084,22 @@ dataset = version.download("coco")`
                           <Download className="w-3.5 h-3.5" />
                           <span>Download Result Folder (.ZIP)</span>
                         </a>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadInference(current.id, current.name)}
+                          disabled={isDownloadingInference}
+                          className="px-4 py-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-200 transition-colors flex items-center gap-1.5"
+                          title="Download standalone inference script (inference.py)"
+                        >
+                          {isDownloadingInference ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <FileCode className="w-3.5 h-3.5" />
+                          )}
+                          <span>Inference (.PY)</span>
+                        </button>
+
                         <a
                           href={weightsUrl}
                           download={`best_rfdetr_${current.id}.pt`}
@@ -3601,6 +5108,7 @@ dataset = version.download("coco")`
                           <Download className="w-3.5 h-3.5" />
                           <span>Weights (.PT)</span>
                         </a>
+
                         {isCurrentOwner && (
                           <button
                             onClick={() => handleDeleteTrainingResult(current.id, current.name)}
@@ -3927,6 +5435,51 @@ dataset = version.download("coco")`
               })()}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 0: INFERENCE SCRIPT UNAVAILABLE WARNING POPUP */}
+      {/* ------------------------------------------------------------- */}
+      {inferenceAlertModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full border border-amber-100 shadow-2xl relative space-y-4">
+            <button
+              type="button"
+              onClick={() => setInferenceAlertModal(null)}
+              className="absolute top-5 right-5 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3.5 mb-2">
+              <div className="p-3 rounded-2xl bg-amber-50 text-amber-600 border border-amber-100">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Inference Script Notice</h3>
+                <p className="text-xs text-amber-600 font-semibold">Template Configuration</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs text-amber-950 font-bold leading-relaxed break-words">
+              {inferenceAlertModal}
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              This template does not have an <code className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px]">inference.py</code> in its template folder under <code className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px]">training_scripts/</code>. Add an <code className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px]">inference.py</code> file to the respective template folder to enable inference exports.
+            </p>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setInferenceAlertModal(null)}
+                className="px-5 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+              >
+                Understood
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -4650,10 +6203,6 @@ dataset = version.download("coco")`
                               Dataset: <strong className="text-slate-700">{j.datasetName}</strong> • By: <strong className="text-slate-700">{j.submittedBy}</strong> • Completed: <strong className="text-slate-700">{j.completedAt ? new Date(j.completedAt).toLocaleDateString() : 'Recent'}</strong>
                             </p>
                             <div className="flex items-center gap-4 text-xs mt-2">
-                              <span className="text-emerald-600 font-bold flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                Training Finished
-                              </span>
                               <span className="text-slate-400 font-medium">{j.totalEpochs} Epochs</span>
                             </div>
                           </div>
@@ -4718,24 +6267,23 @@ dataset = version.download("coco")`
         const isSeg = targetDatasetPickerTemplate === 'rfdetr_seg';
         const isBbox = targetDatasetPickerTemplate === 'rfdetr_bbox';
         const isClass = targetDatasetPickerTemplate === 'classification';
+        const isSegSahi = targetDatasetPickerTemplate === 'rfdetr_seg_sahi';
+        const isBboxSahi = targetDatasetPickerTemplate === 'rfdetr_bbox_sahi';
 
-        const templateTitle = isSeg
-          ? 'Select Dataset • RF-DETR Segmentation'
-          : isBbox
-          ? 'Select Dataset • RF-DETR Detection'
-          : 'Select Dataset • MobileNetV4 Classification';
+        const templateTitle = 'Select Dataset';
 
         const currentSelectedId = isSeg
           ? rfdetrForm.datasetId
           : isBbox
           ? rfdetrBboxForm.datasetId
+          : isSegSahi
+          ? rfdetrSegSahiForm.datasetId
+          : isBboxSahi
+          ? rfdetrBboxSahiForm.datasetId
           : classificationForm.datasetId;
 
         const checkCompatibility = (d: Dataset) => {
-          if (isSeg) {
-            return !(d.domain === 'Image Classification' || d.format === 'images_folder' || d.domain === 'Tabular' || d.format === 'csv');
-          }
-          if (isBbox) {
+          if (isSeg || isBbox || isSegSahi || isBboxSahi) {
             return !(d.domain === 'Image Classification' || d.format === 'images_folder' || d.domain === 'Tabular' || d.format === 'csv');
           }
           if (isClass) {
@@ -4767,11 +6315,17 @@ dataset = version.download("coco")`
             setRfdetrForm((prev) => ({ ...prev, datasetId }));
           } else if (isBbox) {
             setRfdetrBboxForm((prev) => ({ ...prev, datasetId }));
+          } else if (isSegSahi) {
+            setRfdetrSegSahiForm((prev) => ({ ...prev, datasetId }));
+          } else if (isBboxSahi) {
+            setRfdetrBboxSahiForm((prev) => ({ ...prev, datasetId }));
           } else if (isClass) {
             setClassificationForm((prev) => ({ ...prev, datasetId }));
           }
           setTargetDatasetPickerOpen(false);
         };
+
+        const themeColor = isSeg ? 'bg-blue-50 text-blue-600' : isBbox ? 'bg-emerald-50 text-emerald-600' : isSegSahi ? 'bg-purple-50 text-purple-600' : isBboxSahi ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600';
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
@@ -4779,14 +6333,11 @@ dataset = version.download("coco")`
               {/* Header */}
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2.5 rounded-2xl ${isSeg ? 'bg-blue-50 text-blue-600' : isBbox ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                  <div className={`p-2.5 rounded-2xl ${themeColor}`}>
                     <FolderOpen className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-lg font-black text-slate-900">{templateTitle}</h3>
-                    <p className="text-xs text-slate-500">
-                      Choose an uploaded dataset ({datasets.length} available in catalog)
-                    </p>
                   </div>
                 </div>
                 <button
