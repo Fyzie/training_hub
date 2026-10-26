@@ -2250,7 +2250,6 @@ dataset = version.download("coco")`
                         <option value="RFDETRSegSmall">RFDETRSegSmall</option>
                         <option value="RFDETRSegMedium">RFDETRSegMedium</option>
                         <option value="RFDETRSegLarge">RFDETRSegLarge</option>
-                        <option value="RFDETRSegPreview">RFDETRSegPreview</option>
                       </select>
                     </div>
 
@@ -2660,7 +2659,6 @@ dataset = version.download("coco")`
                         <option value="RFDETRNano">RFDETRNano</option>
                         <option value="RFDETRSmall">RFDETRSmall</option>
                         <option value="RFDETRMedium">RFDETRMedium</option>
-                        <option value="RFDETRBase">RFDETRBase</option>
                         <option value="RFDETRLarge">RFDETRLarge</option>
                       </select>
                     </div>
@@ -3490,11 +3488,10 @@ dataset = version.download("coco")`
                         onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, segModel: e.target.value })}
                         className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-purple-500/20"
                       >
-                        <option value="RFDETRSegMedium">RFDETRSegMedium</option>
-                        <option value="RFDETRSegSmall">RFDETRSegSmall</option>
                         <option value="RFDETRSegNano">RFDETRSegNano</option>
+                        <option value="RFDETRSegSmall">RFDETRSegSmall</option>
+                        <option value="RFDETRSegMedium">RFDETRSegMedium</option>
                         <option value="RFDETRSegLarge">RFDETRSegLarge</option>
-                        <option value="RFDETRSegPreview">RFDETRSegPreview</option>
                       </select>
                     </div>
 
@@ -4050,10 +4047,9 @@ dataset = version.download("coco")`
                         onChange={(e) => setRfdetrBboxSahiForm({ ...rfdetrBboxSahiForm, bboxModel: e.target.value })}
                         className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-purple-500/20"
                       >
+                        <option value="RFDETRNano">RFDETRNano</option>
                         <option value="RFDETRSmall">RFDETRSmall</option>
                         <option value="RFDETRMedium">RFDETRMedium</option>
-                        <option value="RFDETRNano">RFDETRNano</option>
-                        <option value="RFDETRBase">RFDETRBase</option>
                         <option value="RFDETRLarge">RFDETRLarge</option>
                       </select>
                     </div>
@@ -4922,14 +4918,6 @@ dataset = version.download("coco")`
                         <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80">
                           {d.domain || (d.category === 'tabular' ? 'Tabular' : 'Instance Segmentation / Object Detection')}
                         </span>
-                        {(() => {
-                          const ov = getDatasetOverlapInfo(d);
-                          return ov ? (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/80">
-                              {ov}
-                            </span>
-                          ) : null;
-                        })()}
                       </div>
                       <p className="text-xs text-slate-500 mt-1">{formatDatasetDescription(d)}</p>
                     </div>
