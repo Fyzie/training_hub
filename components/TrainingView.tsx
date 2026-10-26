@@ -2011,7 +2011,7 @@ dataset = version.download("coco")`
                       </div>
                       <div className="flex items-center justify-between text-slate-700">
                         <span className="text-slate-400 font-medium">Variants:</span>
-                        <strong className="text-slate-800">Nano, Small, Med, Large, Preview</strong>
+                        <strong className="text-slate-800">Nano, Small, Med, Large</strong>
                       </div>
                     </div>
                   </div>
@@ -2043,7 +2043,7 @@ dataset = version.download("coco")`
                       </div>
                       <div className="flex items-center justify-between text-slate-700">
                         <span className="text-slate-400 font-medium">Variants:</span>
-                        <strong className="text-slate-800">Nano, Small, Med, Base, Large</strong>
+                        <strong className="text-slate-800">Nano, Small, Med, Large</strong>
                       </div>
                     </div>
                   </div>
@@ -2112,7 +2112,7 @@ dataset = version.download("coco")`
                       </div>
                       <div className="flex items-center justify-between text-slate-700">
                         <span className="text-slate-400 font-medium">Variants:</span>
-                        <strong className="text-slate-800">Nano, Small, Med, Large, Preview</strong>
+                        <strong className="text-slate-800">Nano, Small, Med, Large</strong>
                       </div>
                     </div>
                   </div>
@@ -2149,7 +2149,7 @@ dataset = version.download("coco")`
                       </div>
                       <div className="flex items-center justify-between text-slate-700">
                         <span className="text-slate-400 font-medium">Variants:</span>
-                        <strong className="text-slate-800">Nano, Small, Med, Base, Large</strong>
+                        <strong className="text-slate-800">Nano, Small, Med, Large</strong>
                       </div>
                     </div>
                   </div>

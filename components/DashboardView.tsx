@@ -94,9 +94,10 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
   const gpuUtil = metrics?.gpu.utilization ?? 28;
   const gpuMemUsed = metrics?.gpu.memoryUsed ?? 1252;
   const gpuMemTotal = metrics?.gpu.memoryTotal ?? 12288;
+  const gpuMemTotalGB = Math.round((gpuMemTotal / 1024) * 10) / 10;
   const gpuMemFreeGB = Math.round(((gpuMemTotal - gpuMemUsed) / 1024) * 10) / 10;
   const gpuMemUsedGB = Math.round((gpuMemUsed / 1024) * 10) / 10;
-  const gpuMemPercent = Math.round((gpuMemUsed / gpuMemTotal) * 100);
+  const gpuMemPercent = Math.min(100, Math.round((gpuMemUsed / gpuMemTotal) * 100));
 
   const cpuUsage = metrics?.cpu.usagePercent ?? 14;
   const ramUsed = metrics?.ram.usedGB ?? 14.8;
@@ -268,7 +269,7 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
                 </div>
               </div>
               <p className="text-xs font-bold text-slate-800 mt-2">GPU Memory</p>
-              <p className="text-[10px] sm:text-[11px] text-slate-400">{gpuMemUsedGB} / 12 GB</p>
+              <p className="text-[10px] sm:text-[11px] text-slate-400">{gpuMemUsedGB} / {gpuMemTotalGB} GB</p>
             </div>
 
             {/* RAM Ring */}
