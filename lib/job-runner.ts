@@ -105,8 +105,14 @@ class JobScheduler {
           let alreadySlicedDir = '';
           if (isSahi && dataset) {
             const candSahiDir = resolveHostDatasetDir(dataset.filePath, dataset.name);
-            if (checkCocoAnnotations(candSahiDir)) {
-              alreadySlicedDir = candSahiDir;
+            const metaPath = path.join(candSahiDir, 'sahi_metadata.json');
+            if (candSahiDir.toLowerCase().includes('sahi') && checkCocoAnnotations(candSahiDir) && fs.existsSync(metaPath)) {
+              try {
+                const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                if (meta.slicing_params?.algorithm === 'uniform_v3') {
+                  alreadySlicedDir = candSahiDir;
+                }
+              } catch {}
             }
           }
 
@@ -523,7 +529,6 @@ class JobScheduler {
                 <p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Experiment:</strong> ${job.name}</p>
                 <p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Architecture:</strong> ${job.hyperparameters?.model_architecture || job.taskType}</p>
                 <p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Dataset:</strong> ${job.datasetName}</p>
-                ${typeof job.mAP50 === 'number' ? `<p style="margin: 4px 0; font-size: 13px; color: #334155;"><strong>Final mAP@50:</strong> ${(job.mAP50 * 100).toFixed(1)}%</p>` : ''}
               </div>
 
               <!-- Go to Workspace Button -->
@@ -567,21 +572,47 @@ class JobScheduler {
     const origName = (origDataset?.name || job.datasetName).replace(/\s*\(SAHI\)$/i, '').trim();
     const sahiDatasetName = `${origName} (SAHI)`;
 
+    const sliceCols = Number(job.hyperparameters?.sliceCols || job.hyperparameters?.slice_cols || 2);
+    const sliceRows = Number(job.hyperparameters?.sliceRows || job.hyperparameters?.slice_rows || 2);
+    const overlapType = job.hyperparameters?.overlapType || 'pixel';
+    const overlapX = Number(job.hyperparameters?.overlapPixelX ?? job.hyperparameters?.overlapRatioX ?? job.hyperparameters?.overlap_x ?? 80);
+    const overlapY = Number(job.hyperparameters?.overlapPixelY ?? job.hyperparameters?.overlapRatioY ?? job.hyperparameters?.overlap_y ?? 80);
+    const minBoxSize = Number(job.hyperparameters?.minBoxSize || 2);
+
     let sourceDir = datasetDir;
     let targetSahiDir = '';
 
     const normDir = datasetDir.replace(/\\/g, '/');
     if (normDir.endsWith('_sahi')) {
       targetSahiDir = datasetDir;
-      if (checkCocoAnnotations(targetSahiDir)) {
-        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Sliced dataset verified: ${path.basename(targetSahiDir)}`);
+      const metaPath = path.join(targetSahiDir, 'sahi_metadata.json');
+      let canReuse = false;
+      if (checkCocoAnnotations(targetSahiDir) && fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          const p = meta.slicing_params || {};
+          if (
+            p.algorithm === 'uniform_v3' &&
+            p.slice_cols === sliceCols &&
+            p.slice_rows === sliceRows &&
+            p.overlap_type === overlapType &&
+            Number(p.overlap_x) === overlapX &&
+            Number(p.overlap_y) === overlapY
+          ) {
+            canReuse = true;
+          }
+        } catch {}
+      }
+
+      if (canReuse) {
+        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Sliced dataset verified (matching uniform config): ${path.basename(targetSahiDir)}`);
         job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${job.totalEpochs} on Host GPU (CUDA)...`);
         job.stage = 'training';
         dataStore.updateJob(job.id, job);
         this.spawnTrainingProcess(job, targetSahiDir);
         return;
       }
-      // targetSahiDir does not have annotations yet; find the real source dataset without '_sahi'
+      // targetSahiDir does not have annotations yet or needs reslice; find the real source dataset without '_sahi'
       const unslicedCand = datasetDir.replace(/_sahi$/i, '');
       if (fs.existsSync(unslicedCand) && fs.statSync(unslicedCand).isDirectory()) {
         sourceDir = unslicedCand;
@@ -596,8 +627,27 @@ class JobScheduler {
     } else {
       sourceDir = datasetDir;
       targetSahiDir = `${datasetDir.replace(/\/$/, '')}_sahi`;
-      if (checkCocoAnnotations(targetSahiDir)) {
-        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Existing SAHI dataset verified: ${path.basename(targetSahiDir)}`);
+      const metaPath = path.join(targetSahiDir, 'sahi_metadata.json');
+      let canReuse = false;
+      if (checkCocoAnnotations(targetSahiDir) && fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          const p = meta.slicing_params || {};
+          if (
+            p.algorithm === 'uniform_v3' &&
+            p.slice_cols === sliceCols &&
+            p.slice_rows === sliceRows &&
+            p.overlap_type === overlapType &&
+            Number(p.overlap_x) === overlapX &&
+            Number(p.overlap_y) === overlapY
+          ) {
+            canReuse = true;
+          }
+        } catch {}
+      }
+
+      if (canReuse) {
+        job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Existing SAHI dataset verified (matching uniform config): ${path.basename(targetSahiDir)}`);
         job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] Commencing Epoch 1/${job.totalEpochs} on Host GPU (CUDA)...`);
         job.stage = 'training';
         dataStore.updateJob(job.id, job);
@@ -621,14 +671,8 @@ class JobScheduler {
     // Execute SAHI Dataset Slicer
     job.status = 'running';
     job.stage = 'preparing';
-    const sliceCols = Number(job.hyperparameters?.sliceCols || job.hyperparameters?.slice_cols || 2);
-    const sliceRows = Number(job.hyperparameters?.sliceRows || job.hyperparameters?.slice_rows || 2);
-    const overlapType = job.hyperparameters?.overlapType || 'pixel';
-    const overlapX = Number(job.hyperparameters?.overlapPixelX ?? job.hyperparameters?.overlapRatioX ?? job.hyperparameters?.overlap_x ?? 80);
-    const overlapY = Number(job.hyperparameters?.overlapPixelY ?? job.hyperparameters?.overlapRatioY ?? job.hyperparameters?.overlap_y ?? 80);
-    const minBoxSize = Number(job.hyperparameters?.minBoxSize || 2);
 
-    job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Algorithm: Slicing source dataset into ${sliceCols}x${sliceRows} tiles (overlap ${overlapX}x${overlapY} ${overlapType})...`);
+    job.logs.push(`[${new Date().toLocaleTimeString()}] [Host Server] SAHI Algorithm: Slicing source dataset into uniform ${sliceCols}x${sliceRows} tiles (overlap ${overlapX}x${overlapY} ${overlapType})...`);
     dataStore.updateJob(job.id, job);
 
     const slicerScript = path.join(process.cwd(), 'scripts', 'sahi_dataset_slicer.py');
@@ -642,7 +686,8 @@ class JobScheduler {
       '--overlap_type', overlapType,
       '--overlap_x', String(overlapX),
       '--overlap_y', String(overlapY),
-      '--min_box_size', String(minBoxSize)
+      '--min_box_size', String(minBoxSize),
+      '--force'
     ];
 
     console.log(`[Host Server] Slicing dataset for job ${job.id}: "${pythonExe}" ${args.join(' ')}`);
@@ -681,6 +726,13 @@ class JobScheduler {
 
         const totalImages = sliceMeta?.total_images || (origDataset?.sampleCount || 10) * sliceCols * sliceRows;
         const totalCats = sliceMeta?.categories || origDataset?.classes || [];
+        const sahiConfig = {
+          sliceCols,
+          sliceRows,
+          overlapType,
+          overlapX,
+          overlapY,
+        };
 
         // Register / update in dataStore catalog
         let sahiDs = datasets.find((d) => d.name.toLowerCase() === sahiDatasetName.toLowerCase());
@@ -698,7 +750,8 @@ class JobScheduler {
             uploadedAt: new Date().toISOString(),
             filePath: `/uploads/datasets/${path.basename(targetSahiDir)}`,
             classes: totalCats,
-            splits: sliceMeta?.splits || undefined
+            splits: sliceMeta?.splits || undefined,
+            sahiConfig
           };
           dataStore.addDataset(sahiDs);
         } else {
@@ -706,6 +759,7 @@ class JobScheduler {
           sahiDs.filePath = `/uploads/datasets/${path.basename(targetSahiDir)}`;
           if (totalCats.length > 0) sahiDs.classes = totalCats;
           if (sliceMeta?.splits) sahiDs.splits = sliceMeta.splits;
+          sahiDs.sahiConfig = sahiConfig;
           dataStore.updateDataset(sahiDs.id, sahiDs);
         }
 

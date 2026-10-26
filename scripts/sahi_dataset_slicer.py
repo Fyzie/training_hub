@@ -3,6 +3,7 @@
 SAHI Dataset Slicer Utility
 Slices COCO-format datasets (Bounding Box & Polygon Segmentation) into high-resolution overlapping tiles
 following the SAHI (Slicing Aided Hyper Inference) algorithm for small-object and defect detection.
+Guarantees 100% uniform patch dimensions across all generated images in the dataset.
 """
 
 import os
@@ -35,19 +36,112 @@ def imwrite_unicode(filepath: str, img):
         return True
     return False
 
-def slice_coco_split(
-    src_split_dir: str,
-    dst_split_dir: str,
+def compute_dataset_uniform_dimensions(
+    src_path: Path,
     slice_cols: int = 2,
     slice_rows: int = 2,
     overlap_type: str = "pixel",
     overlap_x: float = 80.0,
-    overlap_y: float = 80.0,
+    overlap_y: float = 80.0
+):
+    """
+    Scans the source dataset to calculate a single, dataset-wide uniform target tile resolution (W, H).
+    All slices generated across train, valid, and test splits will have this exact resolution.
+    """
+    all_widths = []
+    all_heights = []
+
+    # Search for all COCO json files
+    candidate_names = [
+        "_annotations.coco.json",
+        "annotations.coco.json",
+        "annotations.json",
+        "instances.json"
+    ]
+
+    for root, _, files in os.walk(str(src_path)):
+        for f in files:
+            if f in candidate_names or f.endswith(".coco.json") or f.endswith(".json"):
+                fp = os.path.join(root, f)
+                try:
+                    with open(fp, "r", encoding="utf-8") as jf:
+                        d = json.load(jf)
+                        if isinstance(d, dict) and "images" in d and isinstance(d["images"], list):
+                            for im in d["images"]:
+                                w = im.get("width")
+                                h = im.get("height")
+                                if w and h and w > 0 and h > 0:
+                                    all_widths.append(int(w))
+                                    all_heights.append(int(h))
+                except Exception:
+                    pass
+
+    # If no annotations found, sample actual image files from disk
+    if not all_widths:
+        for root, _, files in os.walk(str(src_path)):
+            for f in files:
+                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp')):
+                    img_sample = imread_unicode(os.path.join(root, f))
+                    if img_sample is not None:
+                        sh, sw = img_sample.shape[:2]
+                        if sw > 0 and sh > 0:
+                            all_widths.append(sw)
+                            all_heights.append(sh)
+                    if len(all_widths) >= 20:
+                        break
+            if len(all_widths) >= 20:
+                break
+
+    if all_widths:
+        ref_w = int(round(float(np.median(all_widths))))
+        ref_h = int(round(float(np.median(all_heights))))
+    else:
+        ref_w = 640
+        ref_h = 640
+
+    base_w = max(16, int(round(ref_w / float(slice_cols))))
+    base_h = max(16, int(round(ref_h / float(slice_rows))))
+
+    # Calculate overlap
+    if overlap_type.lower() in ["percentage", "ratio", "percent"]:
+        pct_x = overlap_x / 100.0 if overlap_x > 1.0 else overlap_x
+        pct_y = overlap_y / 100.0 if overlap_y > 1.0 else overlap_y
+        ov_w = int(round(base_w * pct_x))
+        ov_h = int(round(base_h * pct_y))
+    else:
+        ov_w = int(round(overlap_x))
+        ov_h = int(round(overlap_y))
+
+    # Clamp overlap
+    ov_w = max(0, min(ov_w, base_w - 4 if base_w > 4 else 0))
+    ov_h = max(0, min(ov_h, base_h - 4 if base_h > 4 else 0))
+
+    target_tile_w = max(16, base_w + (ov_w if slice_cols > 1 else 0))
+    target_tile_h = max(16, base_h + (ov_h if slice_rows > 1 else 0))
+
+    return {
+        "ref_w": ref_w,
+        "ref_h": ref_h,
+        "base_w": base_w,
+        "base_h": base_h,
+        "ov_w": ov_w,
+        "ov_h": ov_h,
+        "target_tile_w": target_tile_w,
+        "target_tile_h": target_tile_h
+    }
+
+def slice_coco_split(
+    src_split_dir: str,
+    dst_split_dir: str,
+    target_tile_w: int,
+    target_tile_h: int,
+    slice_cols: int = 2,
+    slice_rows: int = 2,
     min_box_size: float = 2.0
 ):
     """
-    Slices a single COCO dataset split (e.g. train, valid, test).
-    Returns count of sliced images and annotations.
+    Slices a single COCO dataset split (e.g. train, valid, test) with guaranteed uniform tile dimensions.
+    Every generated tile image has exact dimensions (target_tile_w, target_tile_h).
     """
     os.makedirs(dst_split_dir, exist_ok=True)
     
@@ -95,7 +189,8 @@ def slice_coco_split(
     img_id_count = 1
     ann_id_count = 1
 
-    print(f"[SAHI Slicer] Slicing {len(images)} images in {Path(src_split_dir).name} split ({slice_cols}x{slice_rows} grid)...")
+    split_label = Path(src_split_dir).name
+    print(f"[SAHI Slicer] Slicing {len(images)} images in {split_label} into uniform {slice_cols}x{slice_rows} tiles of size {target_tile_w}x{target_tile_h}...")
 
     for img_info in images:
         orig_fname = img_info.get("file_name", "")
@@ -111,47 +206,28 @@ def slice_coco_split(
             continue
             
         h, w = img.shape[:2]
-        base_w = max(1, w // slice_cols)
-        base_h = max(1, h // slice_rows)
 
-        # Calculate overlap in pixels
-        if overlap_type.lower() in ["percentage", "ratio", "percent"]:
-            pct_x = overlap_x / 100.0 if overlap_x > 1.0 else overlap_x
-            pct_y = overlap_y / 100.0 if overlap_y > 1.0 else overlap_y
-            ov_w = int(round(base_w * pct_x))
-            ov_h = int(round(base_h * pct_y))
+        # If source image is smaller than target tile size, pad it to at least target_tile_w, target_tile_h
+        pad_r = max(0, target_tile_w - w)
+        pad_b = max(0, target_tile_h - h)
+        if pad_r > 0 or pad_b > 0:
+            img = cv2.copyMakeBorder(img, 0, pad_b, 0, pad_r, cv2.BORDER_REFLECT_101)
+            h, w = img.shape[:2]
+
+        # Precompute uniform grid start coordinates across this image
+        if slice_cols <= 1 or w <= target_tile_w:
+            x_starts = [int(round(max(0, (w - target_tile_w) / 2.0)))] * max(1, slice_cols)
         else:
-            ov_w = int(round(overlap_x))
-            ov_h = int(round(overlap_y))
+            step_x = (w - target_tile_w) / float(slice_cols - 1)
+            x_starts = [int(round(c * step_x)) for c in range(slice_cols)]
+            x_starts = [max(0, min(xs, w - target_tile_w)) for xs in x_starts]
 
-        # Clamp overlap to avoid reverse bounds
-        ov_w = max(0, min(ov_w, base_w - 4 if base_w > 4 else 0))
-        ov_h = max(0, min(ov_h, base_h - 4 if base_h > 4 else 0))
-
-        # Uniform tile dimensions: every single patch has the exact same width and height
-        tile_w = min(w, base_w + (ov_w if slice_cols > 1 else 0))
-        tile_h = min(h, base_h + (ov_h if slice_rows > 1 else 0))
-        tile_w = max(16, tile_w)
-        tile_h = max(16, tile_h)
-
-        # Precompute uniform grid start coordinates across the image
-        x_starts = []
-        if slice_cols <= 1 or w <= tile_w:
-            x_starts = [0] * max(1, slice_cols)
+        if slice_rows <= 1 or h <= target_tile_h:
+            y_starts = [int(round(max(0, (h - target_tile_h) / 2.0)))] * max(1, slice_rows)
         else:
-            step_x = (w - tile_w) / float(slice_cols - 1)
-            for c in range(slice_cols):
-                xs = int(round(c * step_x))
-                x_starts.append(max(0, min(xs, w - tile_w)))
-
-        y_starts = []
-        if slice_rows <= 1 or h <= tile_h:
-            y_starts = [0] * max(1, slice_rows)
-        else:
-            step_y = (h - tile_h) / float(slice_rows - 1)
-            for r in range(slice_rows):
-                ys = int(round(r * step_y))
-                y_starts.append(max(0, min(ys, h - tile_h)))
+            step_y = (h - target_tile_h) / float(slice_rows - 1)
+            y_starts = [int(round(r * step_y)) for r in range(slice_rows)]
+            y_starts = [max(0, min(ys, h - target_tile_h)) for ys in y_starts]
 
         base_clean_name = Path(orig_fname).name
         stem = Path(base_clean_name).stem
@@ -163,13 +239,14 @@ def slice_coco_split(
             for c in range(slice_cols):
                 x1 = x_starts[c]
                 y1 = y_starts[r]
-                x2 = x1 + tile_w
-                y2 = y1 + tile_h
+                x2 = x1 + target_tile_w
+                y2 = y1 + target_tile_h
 
                 tile = img[y1:y2, x1:x2]
-                actual_th, actual_tw = tile.shape[:2]
-                if actual_th <= 0 or actual_tw <= 0:
-                    continue
+                
+                # Strict guarantee: every tile is exactly target_tile_w by target_tile_h
+                if tile.shape[:2] != (target_tile_h, target_tile_w):
+                    tile = cv2.resize(tile, (target_tile_w, target_tile_h), interpolation=cv2.INTER_LINEAR)
 
                 tile_name = f"{img_id_count}_{stem}_r{r}c{c}{ext}"
                 tile_dst_path = os.path.join(dst_split_dir, tile_name)
@@ -178,8 +255,8 @@ def slice_coco_split(
                 new_images.append({
                     "id": img_id_count,
                     "file_name": tile_name,
-                    "width": actual_tw,
-                    "height": actual_th
+                    "width": target_tile_w,
+                    "height": target_tile_h
                 })
 
                 # Adjust annotations for this tile
@@ -214,9 +291,9 @@ def slice_coco_split(
                                     shifted_poly = []
                                     for i, p in enumerate(poly):
                                         if i % 2 == 0:
-                                            cp = min(float(tile_w), max(0.0, float(p - x1)))
+                                            cp = min(float(target_tile_w), max(0.0, float(p - x1)))
                                         else:
-                                            cp = min(float(tile_h), max(0.0, float(p - y1)))
+                                            cp = min(float(target_tile_h), max(0.0, float(p - y1)))
                                         shifted_poly.append(round(cp, 1))
                                     if len(shifted_poly) >= 6:
                                         new_seg.append(shifted_poly)
@@ -275,6 +352,23 @@ def slice_dataset(
     if not src_path.exists():
         raise FileNotFoundError(f"Source dataset directory does not exist: {src_path}")
 
+    # Compute dataset-wide uniform target tile dimensions
+    dims_info = compute_dataset_uniform_dimensions(
+        src_path=src_path,
+        slice_cols=slice_cols,
+        slice_rows=slice_rows,
+        overlap_type=overlap_type,
+        overlap_x=overlap_x,
+        overlap_y=overlap_y
+    )
+
+    target_tile_w = dims_info["target_tile_w"]
+    target_tile_h = dims_info["target_tile_h"]
+    ref_w = dims_info["ref_w"]
+    ref_h = dims_info["ref_h"]
+    ov_w = dims_info["ov_w"]
+    ov_h = dims_info["ov_h"]
+
     # Check if already sliced and whether parameters match
     needs_reslice = force_reslice
     if dst_path.exists() and not needs_reslice:
@@ -285,26 +379,27 @@ def slice_dataset(
                     meta = json.load(f)
                     p = meta.get("slicing_params", {})
                     if (
-                        p.get("algorithm") != "uniform_v2"
+                        p.get("algorithm") != "uniform_v3"
                         or p.get("slice_cols") != slice_cols
                         or p.get("slice_rows") != slice_rows
                         or p.get("overlap_type") != overlap_type
                         or float(p.get("overlap_x", -1)) != float(overlap_x)
                         or float(p.get("overlap_y", -1)) != float(overlap_y)
+                        or p.get("target_tile_w") != target_tile_w
+                        or p.get("target_tile_h") != target_tile_h
                     ):
                         needs_reslice = True
             except Exception:
                 needs_reslice = True
         else:
-            # Old non-uniform slices without metadata
+            # Old non-uniform slices without uniform_v3 metadata
             needs_reslice = True
 
     if dst_path.exists() and not needs_reslice:
-        # Check if valid
+        # Check if valid annotations exist
         has_train_ann = (dst_path / "train" / "_annotations.coco.json").exists() or (dst_path / "_annotations.coco.json").exists()
         if has_train_ann:
-            print(f"[SAHI Slicer] Uniform sliced dataset already exists at: {dst_path}. Reusing existing slices.")
-            # Scan total images
+            print(f"[SAHI Slicer] Uniform sliced dataset already exists at: {dst_path} (tile size: {target_tile_w}x{target_tile_h}). Reusing existing slices.")
             total_imgs = 0
             all_cats = []
             splits_summary = {}
@@ -326,17 +421,21 @@ def slice_dataset(
                 "output_dir": str(dst_path),
                 "total_images": total_imgs,
                 "categories": all_cats,
-                "splits": splits_summary
+                "splits": splits_summary,
+                "target_tile_w": target_tile_w,
+                "target_tile_h": target_tile_h
             }
 
     if dst_path.exists():
-        print(f"[SAHI Slicer] Slicing with uniform dimensions (algorithm: uniform_v2). Cleaning legacy slices in {dst_path.name}...")
+        print(f"[SAHI Slicer] Slicing with uniform dimensions (algorithm: uniform_v3, size: {target_tile_w}x{target_tile_h}). Cleaning legacy slices in {dst_path.name}...")
         for sp in ["train", "valid", "val", "test", "images"]:
             sub_d = dst_path / sp
             if sub_d.exists() and sub_d.is_dir():
                 shutil.rmtree(sub_d, ignore_errors=True)
 
     dst_path.mkdir(parents=True, exist_ok=True)
+
+    print(f"[SAHI Slicer] Uniform Target Resolution: {target_tile_w}x{target_tile_h} (ref: {ref_w}x{ref_h}, grid: {slice_cols}x{slice_rows}, overlap: {ov_w}x{ov_h} px)")
 
     splits_found = []
     for sp in ["train", "valid", "val", "test"]:
@@ -357,11 +456,10 @@ def slice_dataset(
             img_cnt, ann_cnt, cats = slice_coco_split(
                 src_sp,
                 dst_sp,
+                target_tile_w=target_tile_w,
+                target_tile_h=target_tile_h,
                 slice_cols=slice_cols,
                 slice_rows=slice_rows,
-                overlap_type=overlap_type,
-                overlap_x=overlap_x,
-                overlap_y=overlap_y,
                 min_box_size=min_box_size
             )
             total_images += img_cnt
@@ -374,11 +472,10 @@ def slice_dataset(
         img_cnt, ann_cnt, cats = slice_coco_split(
             str(src_path),
             str(dst_path),
+            target_tile_w=target_tile_w,
+            target_tile_h=target_tile_h,
             slice_cols=slice_cols,
             slice_rows=slice_rows,
-            overlap_type=overlap_type,
-            overlap_x=overlap_x,
-            overlap_y=overlap_y,
             min_box_size=min_box_size
         )
         total_images += img_cnt
@@ -393,7 +490,9 @@ def slice_dataset(
         "total_images": total_images,
         "total_annotations": total_annotations,
         "categories": all_categories,
-        "splits": splits_summary
+        "splits": splits_summary,
+        "target_tile_w": target_tile_w,
+        "target_tile_h": target_tile_h
     }
 
     # Write summary metadata
@@ -403,13 +502,17 @@ def slice_dataset(
                 **result,
                 "source_dataset": str(src_path),
                 "slicing_params": {
-                    "algorithm": "uniform_v2",
+                    "algorithm": "uniform_v3",
                     "slice_cols": slice_cols,
                     "slice_rows": slice_rows,
                     "overlap_type": overlap_type,
                     "overlap_x": overlap_x,
                     "overlap_y": overlap_y,
-                    "min_box_size": min_box_size
+                    "min_box_size": min_box_size,
+                    "target_tile_w": target_tile_w,
+                    "target_tile_h": target_tile_h,
+                    "ref_w": ref_w,
+                    "ref_h": ref_h
                 }
             }, f, indent=2)
     except Exception:
@@ -454,4 +557,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

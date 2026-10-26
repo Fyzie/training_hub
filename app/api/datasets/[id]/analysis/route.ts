@@ -46,6 +46,63 @@ export async function GET(
       else if (fs.existsSync(candidate3)) datasetPath = candidate3;
     }
 
+    const isSahiDataset = Boolean(
+      dataset.name.endsWith('(SAHI)') ||
+      (dataset.filePath && dataset.filePath.toLowerCase().endsWith('_sahi')) ||
+      dataset.sahiConfig
+    );
+
+    // If SAHI dataset, ensure it is freshly and uniformly sliced with uniform_v3
+    if (isSahiDataset) {
+      const origName = dataset.name.replace(/\s*\(SAHI\)$/i, '').trim();
+      const origDataset = datasets.find((d) => d.name.toLowerCase() === origName.toLowerCase() && !d.name.toLowerCase().endsWith('(sahi)'));
+      let sourceDir = origDataset ? resolveHostDatasetDir(origDataset.filePath, origDataset.name) : '';
+      if (!sourceDir && datasetPath) {
+        sourceDir = datasetPath.replace(/_sahi$/i, '');
+      }
+
+      const metaPath = datasetPath ? path.join(datasetPath, 'sahi_metadata.json') : '';
+      let needsSlice = !datasetPath || !fs.existsSync(datasetPath) || !fs.existsSync(metaPath);
+      if (!needsSlice && metaPath && fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          if (meta.slicing_params?.algorithm !== 'uniform_v3') {
+            needsSlice = true;
+          }
+        } catch {
+          needsSlice = true;
+        }
+      }
+
+      if (needsSlice && sourceDir && fs.existsSync(sourceDir)) {
+        if (!datasetPath) {
+          datasetPath = path.join(UPLOADS_DIR, 'datasets', `${path.basename(sourceDir)}_sahi`);
+        }
+        const pythonExe = getHostPythonExe();
+        const slicerScript = path.join(process.cwd(), 'scripts', 'sahi_dataset_slicer.py');
+        const sliceCols = dataset.sahiConfig?.sliceCols || 2;
+        const sliceRows = dataset.sahiConfig?.sliceRows || 2;
+        const overlapType = dataset.sahiConfig?.overlapType || 'pixel';
+        const overlapX = dataset.sahiConfig?.overlapX ?? 80;
+        const overlapY = dataset.sahiConfig?.overlapY ?? 80;
+
+        await new Promise<void>((resolve) => {
+          const child = spawn(pythonExe, [
+            slicerScript,
+            '--src_dataset_dir', sourceDir,
+            '--dst_dataset_dir', datasetPath,
+            '--slice_cols', String(sliceCols),
+            '--slice_rows', String(sliceRows),
+            '--overlap_type', overlapType,
+            '--overlap_x', String(overlapX),
+            '--overlap_y', String(overlapY),
+            '--force'
+          ]);
+          child.on('close', () => resolve());
+        });
+      }
+    }
+
     if (datasetPath && fs.existsSync(datasetPath)) {
       const pythonExe = getHostPythonExe();
       const scriptPath = path.join(process.cwd(), 'scripts', 'dataset_tools.py');
@@ -134,4 +191,3 @@ export async function GET(
     return NextResponse.json({ error: err.message || 'Failed to analyze dataset' }, { status: 500 });
   }
 }
-

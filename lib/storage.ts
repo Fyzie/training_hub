@@ -106,6 +106,11 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
   if (!rawPath && !datasetName) return '';
   ensureStorageHub();
 
+  const isSahiTarget = Boolean(
+    (datasetName && /\(sahi\)/i.test(datasetName)) ||
+    (rawPath && /_sahi(\.zip)?$/i.test(rawPath.trim()))
+  );
+
   let targetSubPath = '';
 
   // Clean rawPath from any machine-specific drive letters or prefixes from previous computers
@@ -158,6 +163,13 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
 
   // Test direct candidates
   for (const cand of searchCandidates) {
+    const candLower = cand.toLowerCase();
+    if (isSahiTarget && !candLower.includes('sahi')) {
+      continue;
+    }
+    if (!isSahiTarget && (candLower.endsWith('_sahi') || candLower.includes('(sahi)'))) {
+      continue;
+    }
     if (fs.existsSync(/*turbopackIgnore: true*/ cand)) {
       const isZip = cand.toLowerCase().endsWith('.zip') || (fs.statSync(/*turbopackIgnore: true*/ cand).isFile() && cand.includes('.zip'));
       if (isZip) {
@@ -182,11 +194,18 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
       try {
         const entries = fs.readdirSync(rootDir);
         for (const entry of entries) {
+          const lower = entry.toLowerCase();
+          if (isSahiTarget && !lower.includes('sahi')) {
+            continue;
+          }
+          if (!isSahiTarget && (lower.endsWith('_sahi') || lower.includes('(sahi)'))) {
+            continue;
+          }
           const p = path.join(rootDir, entry);
-          if (targetSubPath && entry.toLowerCase().includes(targetSubPath.toLowerCase().replace(/\.zip$/i, ''))) {
+          if (targetSubPath && lower.includes(targetSubPath.toLowerCase().replace(/\.zip$/i, ''))) {
             return p;
           }
-          if (datasetName && entry.toLowerCase().includes(datasetName.toLowerCase())) {
+          if (datasetName && lower.includes(datasetName.toLowerCase())) {
             return p;
           }
         }
@@ -195,6 +214,11 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
   }
 
   // Fallback to standard location under current storage hub datasets folder
+  if (isSahiTarget) {
+    const baseName = targetSubPath || (datasetName ? datasetName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'dataset_sahi');
+    const safeSahiName = baseName.toLowerCase().endsWith('_sahi') ? baseName : `${baseName}_sahi`;
+    return path.join(UPLOADS_DIR, 'datasets', safeSahiName);
+  }
   return targetSubPath ? path.join(UPLOADS_DIR, 'datasets', targetSubPath) : path.join(UPLOADS_DIR, 'datasets');
 }
 
