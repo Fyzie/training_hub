@@ -887,6 +887,9 @@ def train_image_classification(
         eta_min=1e-6
     )
 
+    stopped_early = False
+    epochs_completed = actual_warmup_epochs
+
     for epoch in range(actual_warmup_epochs + 1, epochs + 1):
         model.train()
         running_loss = 0.0
@@ -935,8 +938,11 @@ def train_image_classification(
 
         print(f"Epoch {epoch}/{epochs} | Train: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {acc:.4f} | Macro F1: {macro_f1:.4f} | LR: {cur_bb_lr:.1e}/{cur_head_lr:.1e}{saved_mark}", flush=True)
 
+        epochs_completed = epoch
+
         if early_stopping and epochs_no_improve >= patience:
             print(f"\n[Early Stopping] No improvement in validation loss for {patience} consecutive epochs. Stopping early at Epoch {epoch}.", flush=True)
+            stopped_early = True
             break
 
     # Save last weights
@@ -1106,6 +1112,8 @@ created_at: "{datetime.utcnow().isoformat()}"
         },
         "completed_at": datetime.now().isoformat(),
         "training_time_sec": round(train_elapsed, 2),
+        "epochs_completed": epochs_completed,
+        "early_stopped": stopped_early,
     }
     with open(os.path.join(output_dir, "training_metadata.json"), "w", encoding="utf-8") as f:
         json.dump(training_meta, f, indent=2)

@@ -554,6 +554,7 @@ def evaluate_split_inference(
     class_predictions = {c: [] for c in range(num_classes)}
 
     sample_visuals = []
+    all_gt_by_img = {}
 
     print(f"[Evaluation] Inferencing {len(images)} samples from {os.path.basename(split_dir)}...")
 
@@ -587,6 +588,8 @@ def evaluate_split_inference(
                 "raw_ann": ann
             })
             class_gt_counts[cls_idx] += 1
+
+        all_gt_by_img[img_id] = gt_objects
 
         # Run inference
         try:
@@ -692,7 +695,7 @@ def evaluate_split_inference(
             for p_idx, pred in enumerate(preds_c):
                 img_id = pred["img_id"]
                 matched_per_img.setdefault(img_id, set())
-                gts_in_img = [g for g in gt_objects if g["cls"] == c]
+                gts_in_img = [g for g in all_gt_by_img.get(img_id, []) if g["cls"] == c]
 
                 best_iou = 0.0
                 best_gt_idx = -1
@@ -1014,7 +1017,7 @@ def train_rfdetr(
     print(f"  Epochs:           {epochs} (Batch Size: {batch_size}, Grad Accum: {grad_accum_steps})")
     print(f"  Learning Rate:    {lr}")
     print(f"  Val. Interval:    {val_interval}")
-    print(f"  Early Stopping:   {early_stopping_patience} epochs patience ({'enabled' if early_stopping else 'disabled'}, validation loss-guided)")
+    print(f"  Early Stopping:   {early_stopping_patience} epochs patience ({'enabled' if early_stopping else 'disabled'}, validation mAP-guided)")
     print("=================================================================", flush=True)
 
     # 1. Initialize RF-DETR Detection Model
@@ -1131,6 +1134,20 @@ def train_rfdetr(
         print("[Visual Comparison Notice] No sample visuals collected for collage.")
 
     # 9. Training Metadata
+    epochs_completed = epochs
+    early_stopped = False
+    if os.path.exists(metrics_csv):
+        try:
+            df_m = pd.read_csv(metrics_csv)
+            if "epoch" in df_m.columns and not df_m.empty:
+                max_ep = int(df_m["epoch"].max())
+                if max_ep > 0:
+                    epochs_completed = max_ep
+                    if epochs_completed < epochs:
+                        early_stopped = True
+        except Exception:
+            pass
+
     training_meta = {
         "job_id": job_id,
         "experiment_name": experiment_name,
@@ -1161,6 +1178,8 @@ def train_rfdetr(
         },
         "completed_at": datetime.now().isoformat(),
         "training_time_sec": round(train_elapsed, 2),
+        "epochs_completed": epochs_completed,
+        "early_stopped": early_stopped,
     }
     with open(os.path.join(output_dir, "training_metadata.json"), "w", encoding="utf-8") as f:
         json.dump(training_meta, f, indent=2)

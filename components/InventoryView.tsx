@@ -1434,18 +1434,12 @@ export function InventoryView() {
                           <div>
                             <div className="flex items-center gap-2.5">
                               <h4 className="font-extrabold text-base text-slate-900">{locationName}</h4>
-                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-950 border border-amber-200">
-                                {locActiveUnits} Active Units
-                              </span>
                               {locTotalUnits > locActiveUnits && (
                                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
                                   {locTotalUnits - locActiveUnits} Returned
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              {items.length} {items.length === 1 ? 'hardware device registered' : 'hardware devices registered'} at this facility ({locTotalUnits} total units)
-                            </p>
                           </div>
                         </div>
 

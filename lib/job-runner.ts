@@ -218,9 +218,11 @@ class JobScheduler {
 
           // Mark job as generating training results to avoid new queue pickup
           job.stage = 'generating_results';
-          job.currentEpoch = job.totalEpochs;
+          if (!job.earlyStopped) {
+            job.currentEpoch = job.totalEpochs;
+          }
           job.progressPercent = 99;
-          job.logs.push(`[${new Date().toLocaleTimeString()}] Epoch ${job.totalEpochs}/${job.totalEpochs} completed. Generating training results (inference masks, evaluation metrics & confusion matrix)...`);
+          job.logs.push(`[${new Date().toLocaleTimeString()}] Epoch ${job.currentEpoch}/${job.totalEpochs}${job.earlyStopped ? ' - Early Stopping' : ''} completed. Generating training results (inference masks, evaluation metrics & confusion matrix)...`);
           dataStore.updateJob(job.id, job);
 
           ensureStorageHub();
@@ -845,6 +847,16 @@ class JobScheduler {
               currentJob.progressPercent = Math.min(99, Math.round((ep / currentJob.totalEpochs) * 100));
             }
           }
+
+          // Detect early stopping occurrences in real time
+          if (
+            /early\s*stop/i.test(line) ||
+            /signaling trainer to stop/i.test(line) ||
+            /did not improve in the last \d+ records/i.test(line) ||
+            /no improvement in validation/i.test(line)
+          ) {
+            currentJob.earlyStopped = true;
+          }
         }
 
         if (currentJob.logs.length > 300) {
@@ -878,10 +890,11 @@ class JobScheduler {
         if (code === 0) {
           // Read metrics from training_metadata.json if available
           let finalAcc = 0.95;
+          let metaData: any = null;
           const metaPath = path.join(jobDir, 'training_metadata.json');
           if (fs.existsSync(metaPath)) {
             try {
-              const metaData = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+              metaData = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
               if (metaData.metrics) {
                 if (typeof metaData.metrics.map50 === 'number') {
                   finalAcc = metaData.metrics.map50;
@@ -893,6 +906,12 @@ class JobScheduler {
               }
               if (metaData.confusion_matrix && metaData.confusion_matrix.matrix) {
                 currentJob.confusionMatrix = metaData.confusion_matrix;
+              }
+              if (metaData.early_stopped !== undefined) {
+                currentJob.earlyStopped = Boolean(metaData.early_stopped);
+              }
+              if (typeof metaData.epochs_completed === 'number' && metaData.epochs_completed > 0) {
+                currentJob.currentEpoch = metaData.epochs_completed;
               }
             } catch (e) {
               console.error('Error parsing training_metadata.json:', e);
@@ -912,9 +931,39 @@ class JobScheduler {
             }
           }
 
+          // Check metrics.csv for exact last completed epoch
+          const metricsCsvPath = path.join(jobDir, 'metrics.csv');
+          if (fs.existsSync(metricsCsvPath)) {
+            try {
+              const csvContent = fs.readFileSync(metricsCsvPath, 'utf8').trim();
+              const csvLines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+              if (csvLines.length > 1) {
+                const lastLine = csvLines[csvLines.length - 1];
+                const firstVal = parseInt(lastLine.split(',')[0].trim(), 10);
+                if (!isNaN(firstVal) && firstVal > 0) {
+                  currentJob.currentEpoch = firstVal;
+                }
+              }
+            } catch (e) {
+              console.error('Error parsing metrics.csv for last epoch:', e);
+            }
+          }
+
+          // Determine if early stopping took place
+          const didEarlyStop = Boolean(
+            currentJob.earlyStopped ||
+            (currentJob.currentEpoch > 0 && currentJob.currentEpoch < currentJob.totalEpochs)
+          );
+
+          if (didEarlyStop) {
+            currentJob.earlyStopped = true;
+            // Retain actual currentEpoch (e.g. 20) instead of forcing totalEpochs
+          } else {
+            currentJob.currentEpoch = currentJob.totalEpochs;
+          }
+
           currentJob.status = 'completed';
           currentJob.stage = 'completed';
-          currentJob.currentEpoch = currentJob.totalEpochs;
           currentJob.progressPercent = 100;
           currentJob.completedAt = new Date().toISOString();
           currentJob.estimatedRemainingSec = 0;

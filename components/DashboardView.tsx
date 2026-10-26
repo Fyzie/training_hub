@@ -144,8 +144,11 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
               {/* Progress Bar */}
               <div>
                 <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                  <span className="text-slate-600">
+                  <span className="text-slate-600 font-medium">
                     Epoch {activeJob.currentEpoch}/{activeJob.totalEpochs}
+                    {(activeJob.earlyStopped || (activeJob.status === 'completed' && activeJob.currentEpoch > 0 && activeJob.currentEpoch < activeJob.totalEpochs)) ? (
+                      <span className="text-amber-600 font-bold ml-1.5">- Early Stopping</span>
+                    ) : null}
                   </span>
                   <span className="text-blue-600 font-bold">{activeJob.progressPercent}%</span>
                 </div>
@@ -185,7 +188,7 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
           ) : (
             <div className="my-8 text-center py-6">
               <Cpu className="w-12 h-12 text-slate-300 mx-auto mb-2.5" />
-              <p className="text-sm font-bold text-slate-800">No Job Running on GPU</p>
+              <p className="text-sm font-bold text-slate-800">No Job Running</p>
             </div>
           )}
 

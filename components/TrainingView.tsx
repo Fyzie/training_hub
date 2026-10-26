@@ -88,6 +88,39 @@ function getHyperparamError(field: string, val: number | string): string | null 
   return null;
 }
 
+export function getDatasetOverlapInfo(d: Dataset): string | null {
+  if (d.sahiConfig) {
+    const t = d.sahiConfig.overlapType === 'percentage' ? 'percentage' : 'pixel';
+    return `${t} overlap (${d.sahiConfig.overlapX}, ${d.sahiConfig.overlapY})`;
+  }
+  if (!d.description) return null;
+  const matchWithCoords = d.description.match(/(percentage|pixel)\s*overlap\s*\(([^)]+)\)/i);
+  if (matchWithCoords) {
+    return `${matchWithCoords[1].toLowerCase()} overlap (${matchWithCoords[2].trim()})`;
+  }
+  const matchWithout = d.description.match(/(percentage|pixel)\s*overlap/i);
+  if (matchWithout) {
+    const type = matchWithout[1].toLowerCase();
+    const fallback = type === 'percentage' ? '80, 80' : '80, 80';
+    return `${type} overlap (${fallback})`;
+  }
+  if (d.name && d.name.includes('(SAHI)')) {
+    return 'percentage overlap (80, 80)';
+  }
+  return null;
+}
+
+export function formatDatasetDescription(d: Dataset): string {
+  let desc = d.description || '';
+  if (desc && /(percentage|pixel)\s*overlap\)\./i.test(desc)) {
+    const ov = getDatasetOverlapInfo(d);
+    if (ov) {
+      desc = desc.replace(/(percentage|pixel)\s*overlap\)\./i, `${ov}).`);
+    }
+  }
+  return desc;
+}
+
 export function TrainingView() {
   const { user } = useAuth();
   const [subTab, setSubTab] = useState<'queue' | 'submit' | 'datasets' | 'results'>('queue');
@@ -1469,7 +1502,7 @@ dataset = version.download("coco")`
                   }}
                   className="text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  <span>+ Launch New Model Run</span>
+                  <span>+ Submit New Job</span>
                 </button>
               </div>
             </div>
@@ -1658,7 +1691,8 @@ dataset = version.download("coco")`
                         <div className="flex items-center justify-between text-xs font-semibold mb-1">
                           <span className="text-indigo-800 font-bold flex items-center gap-1.5">
                             <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                            Epoch {job.totalEpochs}/{job.totalEpochs} - Generating training results
+                            Epoch {job.currentEpoch}/{job.totalEpochs}
+                            {(job.earlyStopped || (job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs)) ? ' - Early Stopping' : ''} - Generating training results
                           </span>
                           <span className="text-indigo-800 font-black uppercase text-[10px] tracking-wider bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200 animate-pulse">
                             Finalizing
@@ -1671,8 +1705,11 @@ dataset = version.download("coco")`
                     ) : (
                       <div className="mt-4">
                         <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                          <span className="text-slate-500">
+                          <span className="text-slate-500 font-medium">
                             Epoch {job.currentEpoch}/{job.totalEpochs}
+                            {(job.earlyStopped || (job.status === 'completed' && job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs)) ? (
+                              <span className="text-amber-600 font-bold ml-1.5">- Early Stopping</span>
+                            ) : null}
                           </span>
                           <span className="text-slate-800 font-bold">{job.progressPercent}%</span>
                         </div>
@@ -2431,7 +2468,7 @@ dataset = version.download("coco")`
                       />
                       <div>
                         <span className="text-xs font-bold text-slate-800 block">Early Stopping (<code className="text-blue-600 font-mono">early_stopping</code>)</span>
-                        <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
+                        <span className="text-[10px] text-slate-400">Halt training when validation mAP stops improving</span>
                       </div>
                     </label>
 
@@ -2841,7 +2878,7 @@ dataset = version.download("coco")`
                       />
                       <div>
                         <span className="text-xs font-bold text-slate-800 block">Early Stopping (<code className="text-emerald-600 font-mono">early_stopping</code>)</span>
-                        <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
+                        <span className="text-[10px] text-slate-400">Halt training when validation mAP stops improving</span>
                       </div>
                     </label>
 
@@ -3452,11 +3489,19 @@ dataset = version.download("coco")`
                                   <FolderOpen className="w-4 h-4" />
                                 </div>
                                 <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-bold text-xs text-slate-900 group-hover:text-purple-700 truncate">{currentDs.name}</span>
                                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
                                       {currentDs.domain || currentDs.format}
                                     </span>
+                                    {(() => {
+                                      const ov = getDatasetOverlapInfo(currentDs);
+                                      return ov ? (
+                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200 shrink-0">
+                                          {ov}
+                                        </span>
+                                      ) : null;
+                                    })()}
                                   </div>
                                   <p className="text-[11px] text-slate-500 mt-0.5 truncate font-medium">
                                     {currentDs.sampleCount.toLocaleString()} samples • {currentDs.fileSizeMB} MB
@@ -3818,7 +3863,7 @@ dataset = version.download("coco")`
                       />
                       <div>
                         <span className="text-xs font-bold text-slate-800 block">Early Stopping (<code className="text-purple-600 font-mono">early_stopping</code>)</span>
-                        <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
+                        <span className="text-[10px] text-slate-400">Halt training when validation mAP stops improving</span>
                       </div>
                     </label>
 
@@ -4004,11 +4049,19 @@ dataset = version.download("coco")`
                                   <FolderOpen className="w-4 h-4" />
                                 </div>
                                 <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-bold text-xs text-slate-900 group-hover:text-amber-700 truncate">{currentDs.name}</span>
                                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
                                       {currentDs.domain || currentDs.format}
                                     </span>
+                                    {(() => {
+                                      const ov = getDatasetOverlapInfo(currentDs);
+                                      return ov ? (
+                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                                          {ov}
+                                        </span>
+                                      ) : null;
+                                    })()}
                                   </div>
                                   <p className="text-[11px] text-slate-500 mt-0.5 truncate font-medium">
                                     {currentDs.sampleCount.toLocaleString()} samples • {currentDs.fileSizeMB} MB
@@ -4370,7 +4423,7 @@ dataset = version.download("coco")`
                       />
                       <div>
                         <span className="text-xs font-bold text-slate-800 block">Early Stopping (<code className="text-amber-600 font-mono">early_stopping</code>)</span>
-                        <span className="text-[10px] text-slate-400">Halt training when validation loss stops improving</span>
+                        <span className="text-[10px] text-slate-400">Halt training when validation mAP stops improving</span>
                       </div>
                     </label>
 
@@ -4815,8 +4868,16 @@ dataset = version.download("coco")`
                         <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80">
                           {d.domain || (d.category === 'tabular' ? 'Tabular' : 'Instance Segmentation / Object Detection')}
                         </span>
+                        {(() => {
+                          const ov = getDatasetOverlapInfo(d);
+                          return ov ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/80">
+                              {ov}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">{d.description}</p>
+                      <p className="text-xs text-slate-500 mt-1">{formatDatasetDescription(d)}</p>
                     </div>
 
                     <span className="text-xs font-extrabold text-slate-700 bg-slate-50 px-2.5 py-1 rounded-xl shrink-0">
@@ -5910,6 +5971,9 @@ dataset = version.download("coco")`
                           </span>
                           <div className="text-[11px] font-bold text-slate-500 mt-1">
                             {job.currentEpoch}/{job.totalEpochs} Epochs ({job.progressPercent}%)
+                            {(job.earlyStopped || (job.status === 'completed' && job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs)) ? (
+                              <span className="text-amber-600 font-bold ml-1">- Early Stopping</span>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -6044,13 +6108,21 @@ dataset = version.download("coco")`
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="font-bold text-sm text-slate-900 group-hover:text-blue-700 transition-colors">{d.name}</h4>
                             <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80">
                               {d.domain || (d.category === 'tabular' ? 'Tabular' : 'Instance Segmentation / Object Detection')}
                             </span>
+                            {(() => {
+                              const ov = getDatasetOverlapInfo(d);
+                              return ov ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/80">
+                                  {ov}
+                                </span>
+                              ) : null;
+                            })()}
                           </div>
-                          <p className="text-xs text-slate-500 mt-1 line-clamp-1">{d.description || 'No description provided'}</p>
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-1">{formatDatasetDescription(d) || 'No description provided'}</p>
                           <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-2 font-medium">
                             <span>Uploaded by <strong className="text-slate-600">{d.uploadedBy}</strong></span>
                             <span>Size: <strong className="text-slate-600">{d.fileSizeMB} MB</strong></span>
@@ -6419,6 +6491,14 @@ dataset = version.download("coco")`
                             <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
                               {d.domain || d.format}
                             </span>
+                            {(() => {
+                              const ov = getDatasetOverlapInfo(d);
+                              return ov ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/80">
+                                  {ov}
+                                </span>
+                              ) : null;
+                            })()}
                             {isCompatible ? (
                               <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -6433,7 +6513,7 @@ dataset = version.download("coco")`
                           </div>
 
                           <p className="text-xs text-slate-500 mt-1 line-clamp-1">
-                            {d.description || 'No description provided'}
+                            {formatDatasetDescription(d) || 'No description provided'}
                           </p>
 
                           <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-2 font-medium flex-wrap">

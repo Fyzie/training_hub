@@ -75,6 +75,7 @@ export interface TrainingJob {
   progressPercent: number;
   currentEpoch: number;
   totalEpochs: number;
+  earlyStopped?: boolean;
   batchSize: number;
   learningRate: number;
   optimizer: string;
@@ -139,6 +140,13 @@ export interface Dataset {
   filePath?: string;
   classes?: string[];
   splits?: { train: number; val: number; test?: number };
+  sahiConfig?: {
+    sliceCols: number;
+    sliceRows: number;
+    overlapType: 'pixel' | 'percentage' | string;
+    overlapX: number;
+    overlapY: number;
+  };
   isUploading?: boolean;
   uploadProgress?: number;
   uploadStatusText?: string;

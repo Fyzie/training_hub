@@ -93,6 +93,25 @@ export async function POST(request: Request) {
         const sliceCols = Number(body.hyperparameters?.sliceCols || body.hyperparameters?.slice_cols || 2);
         const sliceRows = Number(body.hyperparameters?.sliceRows || body.hyperparameters?.slice_rows || 2);
         const overlapType = body.hyperparameters?.overlapType || 'pixel';
+        const overlapPixelX = Number(body.hyperparameters?.overlapPixelX ?? body.hyperparameters?.overlap_pixel_x ?? 80);
+        const overlapPixelY = Number(body.hyperparameters?.overlapPixelY ?? body.hyperparameters?.overlap_pixel_y ?? 80);
+        const overlapRatioX = Number(body.hyperparameters?.overlapRatioX ?? body.hyperparameters?.overlap_ratio_x ?? 20);
+        const overlapRatioY = Number(body.hyperparameters?.overlapRatioY ?? body.hyperparameters?.overlap_ratio_y ?? 20);
+
+        const overlapX = overlapType === 'percentage' ? overlapRatioX : overlapPixelX;
+        const overlapY = overlapType === 'percentage' ? overlapRatioY : overlapPixelY;
+        const overlapStr = overlapType === 'percentage'
+          ? `percentage overlap (${overlapRatioX}, ${overlapRatioY})`
+          : `pixel overlap (${overlapPixelX}, ${overlapPixelY})`;
+
+        const sahiDescription = `SAHI sliced dataset generated from ${dataset.name} (${sliceCols}x${sliceRows} slices, ${overlapStr}).`;
+        const sahiConfig = {
+          sliceCols,
+          sliceRows,
+          overlapType,
+          overlapX,
+          overlapY,
+        };
 
         if (!sahiDataset) {
           sahiDataset = {
@@ -100,7 +119,7 @@ export async function POST(request: Request) {
             name: sahiDatasetName,
             category: 'vision',
             domain: 'Instance Segmentation / Object Detection',
-            description: `SAHI sliced dataset generated from ${dataset.name} (${sliceCols}x${sliceRows} slices, ${overlapType} overlap).`,
+            description: sahiDescription,
             format: 'coco',
             fileSizeMB: Math.round((dataset.fileSizeMB || 10) * sliceCols * sliceRows * 0.9 * 10) / 10,
             sampleCount: (dataset.sampleCount || 10) * sliceCols * sliceRows,
@@ -112,9 +131,14 @@ export async function POST(request: Request) {
               train: (dataset.splits.train || 0) * sliceCols * sliceRows,
               val: (dataset.splits.val || 0) * sliceCols * sliceRows,
               test: (dataset.splits.test || 0) * sliceCols * sliceRows,
-            } : undefined
+            } : undefined,
+            sahiConfig
           };
           dataStore.addDataset(sahiDataset);
+        } else {
+          sahiDataset.description = sahiDescription;
+          sahiDataset.sahiConfig = sahiConfig;
+          dataStore.updateDataset(sahiDataset.id, sahiDataset);
         }
         effectiveDatasetId = sahiDataset.id;
         effectiveDatasetName = sahiDataset.name;
