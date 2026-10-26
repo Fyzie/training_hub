@@ -118,15 +118,40 @@ def slice_coco_split(
         if overlap_type.lower() in ["percentage", "ratio", "percent"]:
             pct_x = overlap_x / 100.0 if overlap_x > 1.0 else overlap_x
             pct_y = overlap_y / 100.0 if overlap_y > 1.0 else overlap_y
-            ov_w = int(base_w * pct_x)
-            ov_h = int(base_h * pct_y)
+            ov_w = int(round(base_w * pct_x))
+            ov_h = int(round(base_h * pct_y))
         else:
-            ov_w = int(overlap_x)
-            ov_h = int(overlap_y)
+            ov_w = int(round(overlap_x))
+            ov_h = int(round(overlap_y))
 
         # Clamp overlap to avoid reverse bounds
-        ov_w = max(0, min(ov_w, base_w - 4))
-        ov_h = max(0, min(ov_h, base_h - 4))
+        ov_w = max(0, min(ov_w, base_w - 4 if base_w > 4 else 0))
+        ov_h = max(0, min(ov_h, base_h - 4 if base_h > 4 else 0))
+
+        # Uniform tile dimensions: every single patch has the exact same width and height
+        tile_w = min(w, base_w + (ov_w if slice_cols > 1 else 0))
+        tile_h = min(h, base_h + (ov_h if slice_rows > 1 else 0))
+        tile_w = max(16, tile_w)
+        tile_h = max(16, tile_h)
+
+        # Precompute uniform grid start coordinates across the image
+        x_starts = []
+        if slice_cols <= 1 or w <= tile_w:
+            x_starts = [0] * max(1, slice_cols)
+        else:
+            step_x = (w - tile_w) / float(slice_cols - 1)
+            for c in range(slice_cols):
+                xs = int(round(c * step_x))
+                x_starts.append(max(0, min(xs, w - tile_w)))
+
+        y_starts = []
+        if slice_rows <= 1 or h <= tile_h:
+            y_starts = [0] * max(1, slice_rows)
+        else:
+            step_y = (h - tile_h) / float(slice_rows - 1)
+            for r in range(slice_rows):
+                ys = int(round(r * step_y))
+                y_starts.append(max(0, min(ys, h - tile_h)))
 
         base_clean_name = Path(orig_fname).name
         stem = Path(base_clean_name).stem
@@ -136,15 +161,14 @@ def slice_coco_split(
 
         for r in range(slice_rows):
             for c in range(slice_cols):
-                # Calculate coordinates with overlap
-                x1 = max(0, c * base_w - (ov_w if c > 0 else 0))
-                y1 = max(0, r * base_h - (ov_h if r > 0 else 0))
-                x2 = min(w, (c + 1) * base_w + (ov_w if c < slice_cols - 1 else 0))
-                y2 = min(h, (r + 1) * base_h + (ov_h if r < slice_rows - 1 else 0))
+                x1 = x_starts[c]
+                y1 = y_starts[r]
+                x2 = x1 + tile_w
+                y2 = y1 + tile_h
 
                 tile = img[y1:y2, x1:x2]
-                tile_h, tile_w = tile.shape[:2]
-                if tile_h <= 0 or tile_w <= 0:
+                actual_th, actual_tw = tile.shape[:2]
+                if actual_th <= 0 or actual_tw <= 0:
                     continue
 
                 tile_name = f"{img_id_count}_{stem}_r{r}c{c}{ext}"
@@ -154,8 +178,8 @@ def slice_coco_split(
                 new_images.append({
                     "id": img_id_count,
                     "file_name": tile_name,
-                    "width": tile_w,
-                    "height": tile_h
+                    "width": actual_tw,
+                    "height": actual_th
                 })
 
                 # Adjust annotations for this tile
@@ -251,12 +275,35 @@ def slice_dataset(
     if not src_path.exists():
         raise FileNotFoundError(f"Source dataset directory does not exist: {src_path}")
 
-    # Check if already sliced
-    if dst_path.exists() and not force_reslice:
+    # Check if already sliced and whether parameters match
+    needs_reslice = force_reslice
+    if dst_path.exists() and not needs_reslice:
+        meta_file = dst_path / "sahi_metadata.json"
+        if meta_file.exists():
+            try:
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    p = meta.get("slicing_params", {})
+                    if (
+                        p.get("algorithm") != "uniform_v2"
+                        or p.get("slice_cols") != slice_cols
+                        or p.get("slice_rows") != slice_rows
+                        or p.get("overlap_type") != overlap_type
+                        or float(p.get("overlap_x", -1)) != float(overlap_x)
+                        or float(p.get("overlap_y", -1)) != float(overlap_y)
+                    ):
+                        needs_reslice = True
+            except Exception:
+                needs_reslice = True
+        else:
+            # Old non-uniform slices without metadata
+            needs_reslice = True
+
+    if dst_path.exists() and not needs_reslice:
         # Check if valid
         has_train_ann = (dst_path / "train" / "_annotations.coco.json").exists() or (dst_path / "_annotations.coco.json").exists()
         if has_train_ann:
-            print(f"[SAHI Slicer] Sliced dataset already exists at: {dst_path}. Reusing existing slices.")
+            print(f"[SAHI Slicer] Uniform sliced dataset already exists at: {dst_path}. Reusing existing slices.")
             # Scan total images
             total_imgs = 0
             all_cats = []
@@ -281,6 +328,13 @@ def slice_dataset(
                 "categories": all_cats,
                 "splits": splits_summary
             }
+
+    if dst_path.exists():
+        print(f"[SAHI Slicer] Slicing with uniform dimensions (algorithm: uniform_v2). Cleaning legacy slices in {dst_path.name}...")
+        for sp in ["train", "valid", "val", "test", "images"]:
+            sub_d = dst_path / sp
+            if sub_d.exists() and sub_d.is_dir():
+                shutil.rmtree(sub_d, ignore_errors=True)
 
     dst_path.mkdir(parents=True, exist_ok=True)
 
@@ -349,6 +403,7 @@ def slice_dataset(
                 **result,
                 "source_dataset": str(src_path),
                 "slicing_params": {
+                    "algorithm": "uniform_v2",
                     "slice_cols": slice_cols,
                     "slice_rows": slice_rows,
                     "overlap_type": overlap_type,

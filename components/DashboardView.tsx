@@ -146,7 +146,7 @@ export function DashboardView({ onNavigateTab, onOpenTunnel, onOpenLogin }: Dash
                 <div className="flex items-center justify-between text-xs font-semibold mb-1">
                   <span className="text-slate-600 font-medium">
                     Epoch {activeJob.currentEpoch}/{activeJob.totalEpochs}
-                    {(activeJob.earlyStopped || (activeJob.status === 'completed' && activeJob.currentEpoch > 0 && activeJob.currentEpoch < activeJob.totalEpochs)) ? (
+                    {((activeJob.status === 'completed' || activeJob.stage === 'generating_results') && (activeJob.earlyStopped || (activeJob.currentEpoch > 0 && activeJob.currentEpoch < activeJob.totalEpochs))) ? (
                       <span className="text-amber-600 font-bold ml-1.5">- Early Stopping</span>
                     ) : null}
                   </span>

@@ -848,14 +848,18 @@ class JobScheduler {
             }
           }
 
-          // Detect early stopping occurrences in real time
-          if (
-            /early\s*stop/i.test(line) ||
-            /signaling trainer to stop/i.test(line) ||
-            /did not improve in the last \d+ records/i.test(line) ||
-            /no improvement in validation/i.test(line)
-          ) {
-            currentJob.earlyStopped = true;
+          // Detect early stopping occurrences in real time (excluding startup config banners)
+          const isStartupBanner = /early\s*stopping\s*:\s*\d+\s*epochs\s*patience/i.test(line);
+          if (!isStartupBanner) {
+            if (
+              /signaling trainer to stop/i.test(line) ||
+              /stopping early at epoch/i.test(line) ||
+              /\[early stopping\]/i.test(line) ||
+              /did not improve in the last \d+ records/i.test(line) ||
+              /no improvement in validation loss for \d+ consecutive epochs/i.test(line)
+            ) {
+              currentJob.earlyStopped = true;
+            }
           }
         }
 

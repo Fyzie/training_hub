@@ -238,33 +238,57 @@ def run_sahi_segmentation_inference(
                 all_masks = list(getattr(preds, "mask", [])) if hasattr(preds, "mask") and preds.mask is not None else []
         else:
             # SAHI Sliced Inference
-            base_w = w // slice_cols
-            base_h = h // slice_rows
+            base_w = max(1, w // slice_cols)
+            base_h = max(1, h // slice_rows)
 
             if overlap_type.lower() in ["percentage", "ratio", "percent"]:
                 pct_x = overlap_x / 100.0 if overlap_x > 1.0 else overlap_x
                 pct_y = overlap_y / 100.0 if overlap_y > 1.0 else overlap_y
-                ov_w = int(base_w * pct_x)
-                ov_h = int(base_h * pct_y)
+                ov_w = int(round(base_w * pct_x))
+                ov_h = int(round(base_h * pct_y))
             else:
-                ov_w = int(overlap_x)
-                ov_h = int(overlap_y)
+                ov_w = int(round(overlap_x))
+                ov_h = int(round(overlap_y))
 
-            ov_w = max(0, min(ov_w, base_w - 4))
-            ov_h = max(0, min(ov_h, base_h - 4))
+            ov_w = max(0, min(ov_w, base_w - 4 if base_w > 4 else 0))
+            ov_h = max(0, min(ov_h, base_h - 4 if base_h > 4 else 0))
 
-            print(f"[SAHI Slicing] Slicing image {Path(img_p).name} ({w}x{h}) into {slice_cols}x{slice_rows} grid (overlap {ov_w}x{ov_h} px)...")
+            # Uniform tile dimensions: all patches will have the exact same width and height
+            tile_w = min(w, base_w + (ov_w if slice_cols > 1 else 0))
+            tile_h = min(h, base_h + (ov_h if slice_rows > 1 else 0))
+            tile_w = max(16, tile_w)
+            tile_h = max(16, tile_h)
+
+            x_starts = []
+            if slice_cols <= 1 or w <= tile_w:
+                x_starts = [0] * max(1, slice_cols)
+            else:
+                step_x = (w - tile_w) / float(slice_cols - 1)
+                for c in range(slice_cols):
+                    xs = int(round(c * step_x))
+                    x_starts.append(max(0, min(xs, w - tile_w)))
+
+            y_starts = []
+            if slice_rows <= 1 or h <= tile_h:
+                y_starts = [0] * max(1, slice_rows)
+            else:
+                step_y = (h - tile_h) / float(slice_rows - 1)
+                for r in range(slice_rows):
+                    ys = int(round(r * step_y))
+                    y_starts.append(max(0, min(ys, h - tile_h)))
+
+            print(f"[SAHI Slicing] Slicing image {Path(img_p).name} ({w}x{h}) into uniform {slice_cols}x{slice_rows} tiles of size {tile_w}x{tile_h} (overlap {ov_w}x{ov_h} px)...")
 
             for r in range(slice_rows):
                 for c in range(slice_cols):
-                    x1 = max(0, c * base_w - (ov_w if c > 0 else 0))
-                    y1 = max(0, r * base_h - (ov_h if r > 0 else 0))
-                    x2 = min(w, (c + 1) * base_w + (ov_w if c < slice_cols - 1 else 0))
-                    y2 = min(h, (r + 1) * base_h + (ov_h if r < slice_rows - 1 else 0))
+                    x1 = x_starts[c]
+                    y1 = y_starts[r]
+                    x2 = x1 + tile_w
+                    y2 = y1 + tile_h
 
                     tile = raw_cv_img[y1:y2, x1:x2]
-                    tile_h, tile_w = tile.shape[:2]
-                    if tile_h <= 0 or tile_w <= 0:
+                    actual_th, actual_tw = tile.shape[:2]
+                    if actual_th <= 0 or actual_tw <= 0:
                         continue
 
                     if model is not None:

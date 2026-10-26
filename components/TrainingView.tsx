@@ -1707,7 +1707,7 @@ dataset = version.download("coco")`
                         <div className="flex items-center justify-between text-xs font-semibold mb-1">
                           <span className="text-slate-500 font-medium">
                             Epoch {job.currentEpoch}/{job.totalEpochs}
-                            {(job.earlyStopped || (job.status === 'completed' && job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs)) ? (
+                            {(isCompleted && (job.earlyStopped || (job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs))) ? (
                               <span className="text-amber-600 font-bold ml-1.5">- Early Stopping</span>
                             ) : null}
                           </span>
@@ -3632,10 +3632,10 @@ dataset = version.download("coco")`
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-3 border-t border-slate-100">
                     {rfdetrSegSahiForm.overlapType === 'pixel' ? (
                       <>
-                        {/* 3.a. Overlap pixel X */}
+                        {/* Overlap pixel X */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.a. Overlap Pixel Width (X) *
+                            Overlap Pixel Width (X) *
                           </label>
                           <div className="relative">
                             <input
@@ -3653,10 +3653,10 @@ dataset = version.download("coco")`
                           <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap between adjacent tiles in pixels</span>
                         </div>
 
-                        {/* 3.a. Overlap pixel Y */}
+                        {/* Overlap pixel Y */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.a. Overlap Pixel Height (Y) *
+                            Overlap Pixel Height (Y) *
                           </label>
                           <div className="relative">
                             <input
@@ -3676,10 +3676,10 @@ dataset = version.download("coco")`
                       </>
                     ) : (
                       <>
-                        {/* 3.b. Overlap percentage X */}
+                        {/* Overlap percentage X */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.b. Overlap Percentage Width (X) *
+                            Overlap Percentage Width (X) *
                           </label>
                           <div className="relative">
                             <input
@@ -3697,10 +3697,10 @@ dataset = version.download("coco")`
                           <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap ratio percentage relative to tile width</span>
                         </div>
 
-                        {/* 3.b. Overlap percentage Y */}
+                        {/* Overlap percentage Y */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.b. Overlap Percentage Height (Y) *
+                            Overlap Percentage Height (Y) *
                           </label>
                           <div className="relative">
                             <input
@@ -4192,10 +4192,10 @@ dataset = version.download("coco")`
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-3 border-t border-slate-100">
                     {rfdetrBboxSahiForm.overlapType === 'pixel' ? (
                       <>
-                        {/* 3.a. Overlap pixel X */}
+                        {/* Overlap pixel X */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.a. Overlap Pixel Width (X) *
+                            Overlap Pixel Width (X) *
                           </label>
                           <div className="relative">
                             <input
@@ -4213,10 +4213,10 @@ dataset = version.download("coco")`
                           <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap between adjacent tiles in pixels</span>
                         </div>
 
-                        {/* 3.a. Overlap pixel Y */}
+                        {/* Overlap pixel Y */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.a. Overlap Pixel Height (Y) *
+                            Overlap Pixel Height (Y) *
                           </label>
                           <div className="relative">
                             <input
@@ -4236,10 +4236,10 @@ dataset = version.download("coco")`
                       </>
                     ) : (
                       <>
-                        {/* 3.b. Overlap percentage X */}
+                        {/* Overlap percentage X */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.b. Overlap Percentage Width (X) *
+                            Overlap Percentage Width (X) *
                           </label>
                           <div className="relative">
                             <input
@@ -4257,10 +4257,10 @@ dataset = version.download("coco")`
                           <span className="text-[10px] text-slate-400 mt-1 block">Horizontal overlap ratio percentage relative to tile width</span>
                         </div>
 
-                        {/* 3.b. Overlap percentage Y */}
+                        {/* Overlap percentage Y */}
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1">
-                            3.b. Overlap Percentage Height (Y) *
+                            Overlap Percentage Height (Y) *
                           </label>
                           <div className="relative">
                             <input
@@ -5971,7 +5971,7 @@ dataset = version.download("coco")`
                           </span>
                           <div className="text-[11px] font-bold text-slate-500 mt-1">
                             {job.currentEpoch}/{job.totalEpochs} Epochs ({job.progressPercent}%)
-                            {(job.earlyStopped || (job.status === 'completed' && job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs)) ? (
+                            {(job.status === 'completed' && (job.earlyStopped || (job.currentEpoch > 0 && job.currentEpoch < job.totalEpochs))) ? (
                               <span className="text-amber-600 font-bold ml-1">- Early Stopping</span>
                             ) : null}
                           </div>
