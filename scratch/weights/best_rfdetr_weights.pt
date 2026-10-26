@@ -1,2 +1,0 @@
-RFDETR_CHECKPOINT_BEST_WEIGHTS
-{"epochs": 100, "batch_size": 4, "grad_accum_steps": 4, "lr": 0.0001, "device": "cuda", "val_interval": 1, "save_interval": 10, "early_stopping": true, "early_stopping_patience": 10, "num_classes": 2, "model_architecture": "RFDETRSegSmall"}
