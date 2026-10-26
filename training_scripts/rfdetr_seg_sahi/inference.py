@@ -168,6 +168,148 @@ def render_segmentation_overlay(img_path: str, boxes, scores, classes, masks, cl
     final_img.save(output_path, "PNG")
     print(f"[Overlay] Saved SAHI segmentation visualization to: {output_path}")
 
+def predict_sliced_custom(
+    model,
+    raw_cv_img: np.ndarray,
+    slice_cols: int = 2,
+    slice_rows: int = 2,
+    overlap_type: str = "pixel",
+    overlap_x: float = 80.0,
+    overlap_y: float = 80.0,
+    conf_threshold: float = 0.35,
+    active_device: str = "cuda"
+):
+    """
+    Slices the input image into overlapping tiles, batches them into an image_list,
+    runs a single forward prediction batch on the model, and remaps the predicted
+    bounding boxes and segmentation masks back to the full image coordinates.
+    """
+    h, w = raw_cv_img.shape[:2]
+
+    # 1. Define slices (dynamic grid + overlap)
+    base_w = max(1, w // slice_cols)
+    base_h = max(1, h // slice_rows)
+
+    if overlap_type.lower() in ["percentage", "ratio", "percent"]:
+        pct_x = overlap_x / 100.0 if overlap_x > 1.0 else overlap_x
+        pct_y = overlap_y / 100.0 if overlap_y > 1.0 else overlap_y
+        ov_w = int(round(base_w * pct_x))
+        ov_h = int(round(base_h * pct_y))
+    else:
+        ov_w = int(round(overlap_x))
+        ov_h = int(round(overlap_y))
+
+    ov_w = max(0, min(ov_w, base_w - 4 if base_w > 4 else 0))
+    ov_h = max(0, min(ov_h, base_h - 4 if base_h > 4 else 0))
+
+    tile_w = min(w, base_w + (ov_w if slice_cols > 1 else 0))
+    tile_h = min(h, base_h + (ov_h if slice_rows > 1 else 0))
+    tile_w = max(16, tile_w)
+    tile_h = max(16, tile_h)
+
+    if slice_cols <= 1 or w <= tile_w:
+        x_starts = [0] * max(1, slice_cols)
+    else:
+        step_x = (w - tile_w) / float(slice_cols - 1)
+        x_starts = [max(0, min(int(round(c * step_x)), w - tile_w)) for c in range(slice_cols)]
+
+    if slice_rows <= 1 or h <= tile_h:
+        y_starts = [0] * max(1, slice_rows)
+    else:
+        step_y = (h - tile_h) / float(slice_rows - 1)
+        y_starts = [max(0, min(int(round(r * step_y)), h - tile_h)) for r in range(slice_rows)]
+
+    slice_coords = []
+    for r in range(slice_rows):
+        for c in range(slice_cols):
+            x1 = x_starts[c]
+            y1 = y_starts[r]
+            x2 = min(w, x1 + tile_w)
+            y2 = min(h, y1 + tile_h)
+            slice_coords.append([x1, y1, x2, y2])
+
+    # 2. Extract Slices into list
+    image_list = []
+    valid_coords = []
+    for sc in slice_coords:
+        x1, y1, x2, y2 = sc
+        slice_img = raw_cv_img[y1:y2, x1:x2]
+        if slice_img.shape[0] <= 0 or slice_img.shape[1] <= 0:
+            continue
+        slice_rgb = np.ascontiguousarray(cv2.cvtColor(slice_img, cv2.COLOR_BGR2RGB))
+        image_list.append(slice_rgb)
+        valid_coords.append(sc)
+
+    if model is None or len(image_list) == 0:
+        return [], [], [], []
+
+    print(f"[SAHI Inference] Running batch prediction on {len(image_list)} sliced patches ({tile_w}x{tile_h})...")
+
+    # 3. Batch Prediction
+    # This sends all sliced images in the list to the GPU in one go
+    try:
+        batch_results = model.predict(image_list, threshold=conf_threshold, device=active_device)
+    except TypeError:
+        batch_results = model.predict(image_list, threshold=conf_threshold)
+
+    if not isinstance(batch_results, (list, tuple)):
+        batch_results = [batch_results]
+
+    # 4. Remap Predictions to Full Canvas
+    all_boxes = []
+    all_scores = []
+    all_class_ids = []
+    all_masks = []
+
+    for i, det in enumerate(batch_results):
+        ox, oy = valid_coords[i][0], valid_coords[i][1]
+
+        b = getattr(det, "xyxy", [])
+        s = getattr(det, "confidence", [])
+        cid = getattr(det, "class_id", [])
+        m = getattr(det, "mask", None)
+
+        for idx in range(len(b)):
+            bx1, by1, bx2, by2 = b[idx]
+            all_boxes.append([float(bx1 + ox), float(by1 + oy), float(bx2 + ox), float(by2 + oy)])
+            all_scores.append(float(s[idx]))
+            all_class_ids.append(int(cid[idx]))
+
+            if m is not None and len(m) > idx and m[idx] is not None:
+                slice_mask = m[idx]
+                if hasattr(slice_mask, 'cpu'):
+                    slice_mask = slice_mask.cpu().numpy()
+                slice_mask = np.asarray(slice_mask)
+                if slice_mask.dtype == bool:
+                    slice_mask = slice_mask.astype(np.uint8)
+
+                cur_sc = valid_coords[i]
+                sw = cur_sc[2] - cur_sc[0]
+                sh = cur_sc[3] - cur_sc[1]
+
+                if slice_mask.shape[0] != sh or slice_mask.shape[1] != sw:
+                    slice_mask = cv2.resize(slice_mask, (sw, sh), interpolation=cv2.INTER_NEAREST)
+
+                full_mask = np.zeros((h, w), dtype=np.uint8)
+                full_mask[oy : oy + slice_mask.shape[0], ox : ox + slice_mask.shape[1]] = (slice_mask > 0).astype(np.uint8)
+                all_masks.append(full_mask)
+            else:
+                all_masks.append(None)
+
+    # 5. Non-Maximum Suppression (NMS)
+    # Important because overlaps will create double-detections on boundary regions
+    if len(all_boxes) > 0:
+        boxes_np = np.array(all_boxes)
+        scores_np = np.array(all_scores)
+        keep_indices = nms_boxes(boxes_np, scores_np, iou_threshold=0.45)
+        all_boxes = [all_boxes[k] for k in keep_indices]
+        all_scores = [all_scores[k] for k in keep_indices]
+        all_class_ids = [all_class_ids[k] for k in keep_indices]
+        if all_masks:
+            all_masks = [all_masks[k] for k in keep_indices]
+
+    return all_boxes, all_scores, all_class_ids, all_masks
+
 def run_sahi_segmentation_inference(
     weights_path: str,
     source_path: str,
@@ -229,110 +371,39 @@ def run_sahi_segmentation_inference(
         all_masks = []
 
         if not use_sahi or (slice_cols <= 1 and slice_rows <= 1):
-            # Direct inference
+            # Direct inference (single full-frame image)
             if model is not None:
-                preds = model.predict(images=img_p, threshold=conf_threshold, device=active_device)
-                all_boxes = list(getattr(preds, "xyxy", []))
-                all_scores = list(getattr(preds, "confidence", []))
-                all_class_ids = list(getattr(preds, "class_id", []))
-                all_masks = list(getattr(preds, "mask", [])) if hasattr(preds, "mask") and preds.mask is not None else []
+                rgb_img = np.ascontiguousarray(cv2.cvtColor(raw_cv_img, cv2.COLOR_BGR2RGB))
+                try:
+                    preds = model.predict(images=[rgb_img], threshold=conf_threshold, device=active_device)
+                except TypeError:
+                    preds = model.predict(images=[rgb_img], threshold=conf_threshold)
+
+                if isinstance(preds, (list, tuple)) and len(preds) > 0:
+                    preds = preds[0]
+
+                all_boxes = [list(map(float, b)) for b in getattr(preds, "xyxy", [])]
+                all_scores = [float(s) for s in getattr(preds, "confidence", [])]
+                all_class_ids = [int(c) for c in getattr(preds, "class_id", [])]
+                all_masks = []
+                if hasattr(preds, "mask") and preds.mask is not None:
+                    for m in preds.mask:
+                        if hasattr(m, 'cpu'):
+                            m = m.cpu().numpy()
+                        all_masks.append(np.asarray(m, dtype=np.uint8))
         else:
-            # SAHI Sliced Inference
-            base_w = max(1, w // slice_cols)
-            base_h = max(1, h // slice_rows)
-
-            if overlap_type.lower() in ["percentage", "ratio", "percent"]:
-                pct_x = overlap_x / 100.0 if overlap_x > 1.0 else overlap_x
-                pct_y = overlap_y / 100.0 if overlap_y > 1.0 else overlap_y
-                ov_w = int(round(base_w * pct_x))
-                ov_h = int(round(base_h * pct_y))
-            else:
-                ov_w = int(round(overlap_x))
-                ov_h = int(round(overlap_y))
-
-            ov_w = max(0, min(ov_w, base_w - 4 if base_w > 4 else 0))
-            ov_h = max(0, min(ov_h, base_h - 4 if base_h > 4 else 0))
-
-            # Uniform tile dimensions: all patches will have the exact same width and height
-            tile_w = min(w, base_w + (ov_w if slice_cols > 1 else 0))
-            tile_h = min(h, base_h + (ov_h if slice_rows > 1 else 0))
-            tile_w = max(16, tile_w)
-            tile_h = max(16, tile_h)
-
-            x_starts = []
-            if slice_cols <= 1 or w <= tile_w:
-                x_starts = [0] * max(1, slice_cols)
-            else:
-                step_x = (w - tile_w) / float(slice_cols - 1)
-                for c in range(slice_cols):
-                    xs = int(round(c * step_x))
-                    x_starts.append(max(0, min(xs, w - tile_w)))
-
-            y_starts = []
-            if slice_rows <= 1 or h <= tile_h:
-                y_starts = [0] * max(1, slice_rows)
-            else:
-                step_y = (h - tile_h) / float(slice_rows - 1)
-                for r in range(slice_rows):
-                    ys = int(round(r * step_y))
-                    y_starts.append(max(0, min(ys, h - tile_h)))
-
-            print(f"[SAHI Slicing] Slicing image {Path(img_p).name} ({w}x{h}) into uniform {slice_cols}x{slice_rows} tiles of size {tile_w}x{tile_h} (overlap {ov_w}x{ov_h} px)...")
-
-            for r in range(slice_rows):
-                for c in range(slice_cols):
-                    x1 = x_starts[c]
-                    y1 = y_starts[r]
-                    x2 = x1 + tile_w
-                    y2 = y1 + tile_h
-
-                    tile = raw_cv_img[y1:y2, x1:x2]
-                    actual_th, actual_tw = tile.shape[:2]
-                    if actual_th <= 0 or actual_tw <= 0:
-                        continue
-
-                    if model is not None:
-                        # Save temp tile for predictor
-                        tmp_tile_path = os.path.join(output_dir, f"_sahi_tile_r{r}_c{c}.png")
-                        cv2.imwrite(tmp_tile_path, tile)
-                        try:
-                            tile_preds = model.predict(images=tmp_tile_path, threshold=conf_threshold, device=active_device)
-                            t_boxes = getattr(tile_preds, "xyxy", [])
-                            t_scores = getattr(tile_preds, "confidence", [])
-                            t_classes = getattr(tile_preds, "class_id", [])
-                            t_masks = getattr(tile_preds, "mask", None)
-
-                            for tidx, tb in enumerate(t_boxes):
-                                t_sc = float(t_scores[tidx]) if len(t_scores) > tidx else 0.0
-                                t_cl = int(t_classes[tidx]) if len(t_classes) > tidx else 0
-                                # Shift tile bbox coordinates to global image coordinates
-                                g_box = [tb[0] + x1, tb[1] + y1, tb[2] + x1, tb[3] + y1]
-                                all_boxes.append(g_box)
-                                all_scores.append(t_sc)
-                                all_class_ids.append(t_cl)
-
-                                if t_masks is not None and len(t_masks) > tidx and t_masks[tidx] is not None:
-                                    g_mask = np.zeros((h, w), dtype=np.uint8)
-                                    tm = (t_masks[tidx].astype(np.uint8) * 255)
-                                    tm_res = cv2.resize(tm, (tile_w, tile_h), interpolation=cv2.INTER_NEAREST)
-                                    g_mask[y1:y2, x1:x2] = (tm_res > 127).astype(np.uint8)
-                                    all_masks.append(g_mask)
-                                else:
-                                    all_masks.append(None)
-                        finally:
-                            if os.path.exists(tmp_tile_path):
-                                try: os.remove(tmp_tile_path)
-                                except Exception: pass
-
-            # Non-Maximum Suppression across merged tiles
-            if len(all_boxes) > 0:
-                boxes_np = np.array(all_boxes)
-                scores_np = np.array(all_scores)
-                keep_indices = nms_boxes(boxes_np, scores_np, iou_threshold=0.45)
-                all_boxes = [all_boxes[i] for i in keep_indices]
-                all_scores = [all_scores[i] for i in keep_indices]
-                all_class_ids = [all_class_ids[i] for i in keep_indices]
-                all_masks = [all_masks[i] for i in keep_indices] if all_masks else []
+            # SAHI Sliced Inference: extract slices into list, batch predict, remap to full canvas, and NMS
+            all_boxes, all_scores, all_class_ids, all_masks = predict_sliced_custom(
+                model=model,
+                raw_cv_img=raw_cv_img,
+                slice_cols=slice_cols,
+                slice_rows=slice_rows,
+                overlap_type=overlap_type,
+                overlap_x=overlap_x,
+                overlap_y=overlap_y,
+                conf_threshold=conf_threshold,
+                active_device=active_device
+            )
 
         print(f"[SAHI Inference] Total detections on {Path(img_p).name}: {len(all_boxes)}")
         out_path = os.path.join(output_dir, f"sahi_overlay_{Path(img_p).name}")
@@ -367,4 +438,3 @@ if __name__ == "__main__":
         use_sahi=not args.no_sahi,
         output_dir=args.output_dir
     )
-
