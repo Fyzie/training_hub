@@ -20,6 +20,45 @@ import argparse
 from pathlib import Path
 from PIL import Image
 
+def filter_coco_parent_categories(categories: list, annotations: list) -> list:
+    """
+    Drops unannotated grouping nodes from a COCO categories list (e.g. Roboflow synthetic root categories).
+    Matches the exact filter_parent_categories logic used by RF-DETR's dataset loader.
+    """
+    if not categories:
+        return []
+
+    def get_norm_id(cat):
+        try:
+            return int(cat.get("id"))
+        except (KeyError, TypeError, ValueError):
+            return 999999
+
+    ordered = sorted(categories, key=get_norm_id)
+    placeholders = {"", "none", "null", None}
+    supercategories = [(c.get("supercategory", "none"), c.get("name")) for c in ordered]
+    parents = {
+        sc for sc, name in supercategories
+        if sc not in placeholders and sc != name
+    }
+    if not parents:
+        return ordered
+
+    annotated_ids = set()
+    for an in (annotations or []):
+        try:
+            if "category_id" in an and an["category_id"] is not None:
+                annotated_ids.add(int(an["category_id"]))
+        except (TypeError, ValueError):
+            pass
+
+    kept = [
+        c for c in ordered
+        if not (c.get("name") in parents and get_norm_id(c) not in annotated_ids)
+    ]
+    return kept or ordered
+
+
 def analyze_zip_archive(real_path: str, domain: str = "") -> dict:
     """Fast, in-memory inspection of zip archives without extracting thousands of files to disk."""
     size_mb = round(os.path.getsize(real_path) / (1024 * 1024), 2)
@@ -55,7 +94,10 @@ def analyze_zip_archive(real_path: str, domain: str = "") -> dict:
                     except Exception:
                         continue
 
-                    for cat in cdata.get("categories", []):
+                    raw_cats = cdata.get("categories", [])
+                    anns = cdata.get("annotations", [])
+                    filtered_cats = filter_coco_parent_categories(raw_cats, anns)
+                    for cat in filtered_cats:
                         cid = cat.get("id")
                         cname = cat.get("name")
                         if cid is not None and cname:
@@ -454,7 +496,10 @@ def analyze_dataset(dataset_dir: str, domain: str = "") -> dict:
             except Exception:
                 continue
 
-            for cat in cdata.get("categories", []):
+            raw_cats = cdata.get("categories", [])
+            anns = cdata.get("annotations", [])
+            filtered_cats = filter_coco_parent_categories(raw_cats, anns)
+            for cat in filtered_cats:
                 cid = cat.get("id")
                 cname = cat.get("name")
                 if cid is not None and cname:

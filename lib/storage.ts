@@ -227,6 +227,33 @@ export function resolveHostDatasetDir(rawPath?: string, datasetName?: string): s
  * - For Instance Segmentation & Object Detection: reads _annotations.coco.json or any COCO JSON.
  * - For Image Classification: reads subfolder names in train/ or valid/ (including nested containers).
  */
+function filterCocoParentCategories(categories: any[], annotations: any[]): any[] {
+  if (!Array.isArray(categories) || categories.length === 0) return [];
+  const annotatedIds = new Set(
+    (Array.isArray(annotations) ? annotations : [])
+      .map((a: any) => (a && a.category_id !== undefined ? Number(a.category_id) : null))
+      .filter((id: any) => id !== null)
+  );
+
+  const placeholders = new Set(['', 'none', 'null', null, undefined]);
+  const supercategories = categories.map((c: any) => ({ sc: c?.supercategory, name: c?.name }));
+  const parents = new Set(
+    supercategories
+      .filter((x: any) => !placeholders.has(x.sc) && x.sc !== x.name)
+      .map((x: any) => String(x.sc).trim())
+  );
+
+  if (parents.size === 0) return categories;
+
+  const kept = categories.filter((c: any) => {
+    const cname = String(c?.name || '').trim();
+    const cid = Number(c?.id);
+    return !(parents.has(cname) && !annotatedIds.has(cid));
+  });
+
+  return kept.length > 0 ? kept : categories;
+}
+
 export function scanDatasetClasses(rawPath: string): string[] {
   try {
     const resolved = resolveHostDatasetDir(rawPath);
@@ -268,7 +295,8 @@ export function scanDatasetClasses(rawPath: string): string[] {
             try {
               const data = JSON.parse(fs.readFileSync(annPath, 'utf-8'));
               if (Array.isArray(data.categories)) {
-                const names = data.categories.map((c: any) => c.name).filter(Boolean).map((n: any) => String(n).trim());
+                const filtered = filterCocoParentCategories(data.categories, data.annotations);
+                const names = filtered.map((c: any) => c.name).filter(Boolean).map((n: any) => String(n).trim());
                 if (names.length > 0) return names;
               }
             } catch {}
@@ -289,7 +317,8 @@ export function scanDatasetClasses(rawPath: string): string[] {
             try {
               const data = JSON.parse(fs.readFileSync(full, 'utf-8'));
               if (Array.isArray(data.categories)) {
-                const names = data.categories.map((c: any) => c.name).filter(Boolean).map((n: any) => String(n).trim());
+                const filtered = filterCocoParentCategories(data.categories, data.annotations);
+                const names = filtered.map((c: any) => c.name).filter(Boolean).map((n: any) => String(n).trim());
                 if (names.length > 0) return names;
               }
             } catch {}

@@ -29,11 +29,15 @@ function extractJson(text: string): any {
   return JSON.parse(text.trim());
 }
 
-function runPythonRoboflow(snippet: string): Promise<any> {
+function runPythonRoboflow(snippet: string, name?: string): Promise<any> {
   return new Promise((resolve, reject) => {
     const pythonExe = getHostPythonExe();
     const scriptPath = path.join(process.cwd(), 'scripts', 'download_roboflow.py');
-    const child = spawn(pythonExe, [scriptPath, '--snippet', snippet]);
+    const args = [scriptPath, '--snippet', snippet];
+    if (name) {
+      args.push('--name', name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_'));
+    }
+    const child = spawn(pythonExe, args);
 
     let stdout = '';
     let stderr = '';
@@ -126,7 +130,7 @@ export async function POST(request: Request) {
 
       if (roboflowSnippet && roboflowSnippet.trim().length > 10) {
         try {
-          const rfRes = await runPythonRoboflow(roboflowSnippet.trim());
+          const rfRes = await runPythonRoboflow(roboflowSnippet.trim(), name);
           const newDataset: Dataset = {
             id: `ds-${Date.now().toString(36)}`,
             name: name.trim() || rfRes.name,
@@ -248,7 +252,7 @@ export async function POST(request: Request) {
 
       if (body.roboflowSnippet && body.roboflowSnippet.trim().length > 10) {
         try {
-          const rfRes = await runPythonRoboflow(body.roboflowSnippet.trim());
+          const rfRes = await runPythonRoboflow(body.roboflowSnippet.trim(), body.name);
           const newDataset: Dataset = {
             id: `ds-${Date.now().toString(36)}`,
             name: body.name?.trim() || rfRes.name,

@@ -128,10 +128,50 @@ def resolve_dataset_dir(dataset_dir: str) -> str:
     return dataset_dir
 
 
+def filter_coco_parent_categories(categories: list, annotations: list) -> list:
+    """
+    Drops unannotated grouping nodes from a COCO categories list (e.g. Roboflow synthetic root categories).
+    Matches the exact filter_parent_categories logic used by RF-DETR's dataset loader.
+    """
+    if not categories:
+        return []
+
+    def get_norm_id(cat):
+        try:
+            return int(cat.get("id"))
+        except (KeyError, TypeError, ValueError):
+            return 999999
+
+    ordered = sorted(categories, key=get_norm_id)
+    placeholders = {"", "none", "null", None}
+    supercategories = [(c.get("supercategory", "none"), c.get("name")) for c in ordered]
+    parents = {
+        sc for sc, name in supercategories
+        if sc not in placeholders and sc != name
+    }
+    if not parents:
+        return ordered
+
+    annotated_ids = set()
+    for an in (annotations or []):
+        try:
+            if "category_id" in an and an["category_id"] is not None:
+                annotated_ids.add(int(an["category_id"]))
+        except (TypeError, ValueError):
+            pass
+
+    kept = [
+        c for c in ordered
+        if not (c.get("name") in parents and get_norm_id(c) not in annotated_ids)
+    ]
+    return kept or ordered
+
+
 def extract_coco_categories(dataset_dir: str):
     """
     Extracts category definitions and names from _annotations.coco.json.
     Searches in train, valid, test, or dataset root.
+    Filters unannotated grouping categories (e.g. Roboflow root supercategories).
     Returns: (class_names: list[str], categories: list[dict], cat_id_to_idx: dict)
     """
     candidate_splits = ["train", "valid", "val", "test", ""]
@@ -144,8 +184,10 @@ def extract_coco_categories(dataset_dir: str):
                 try:
                     with open(ann_path, "r", encoding="utf-8") as jf:
                         data = json.load(jf)
-                    categories = data.get("categories", [])
-                    if categories:
+                    raw_categories = data.get("categories", [])
+                    annotations = data.get("annotations", [])
+                    if raw_categories:
+                        categories = filter_coco_parent_categories(raw_categories, annotations)
                         # Extract class names preserving COCO category IDs, ensuring uniqueness
                         seen = {}
                         clean_names = []
@@ -160,7 +202,7 @@ def extract_coco_categories(dataset_dir: str):
 
                         class_names = clean_names
                         cat_id_to_idx = {c["id"]: i for i, c in enumerate(categories)}
-                        print(f"[Dataset] Discovered {len(class_names)} classes from {ann_path}: {class_names}", flush=True)
+                        print(f"[Dataset] Discovered {len(class_names)} annotated classes from {ann_path}: {class_names}", flush=True)
                         return class_names, categories, cat_id_to_idx
                 except Exception as e:
                     print(f"[Warning] Failed to parse {ann_path}: {e}")
@@ -1080,8 +1122,31 @@ def train_rfdetr(
             class_names=class_names,
             compute_val_loss=True,
         )
+    except ValueError as ve:
+        err_msg = str(ve)
+        if "leave class_names unset to use the dataset's names" in err_msg or "class_names has" in err_msg:
+            print(f"[RF-DETR Notice] Aligning class names with dataset: {ve}", flush=True)
+            print("[RF-DETR] Retrying model.train() with dataset-native class configuration...", flush=True)
+            model.train(
+                dataset_dir=resolved_dataset_dir,
+                output_dir=output_dir,
+                epochs=epochs,
+                batch_size=batch_size,
+                grad_accum_steps=grad_accum_steps,
+                lr=lr,
+                checkpoint_interval=save_interval,
+                early_stopping=early_stopping,
+                early_stopping_patience=early_stopping_patience,
+                compute_val_loss=True,
+            )
+        else:
+            print(f"[RF-DETR Fatal Error] Training failed: {ve}", flush=True)
+            raise ve
     except Exception as te:
-        print(f"[RF-DETR Training Notice] Caught exception or completed: {te}", flush=True)
+        print(f"[RF-DETR Fatal Error] Training failed: {te}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise te
 
     train_elapsed = time.time() - train_start_time
     print(f"[RF-DETR] Training stage completed in {train_elapsed:.1f}s.", flush=True)

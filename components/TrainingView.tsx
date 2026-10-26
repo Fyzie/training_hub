@@ -1177,8 +1177,8 @@ dataset = version.download("coco")`
       uploadedBy: userName,
       uploadedAt: new Date().toISOString(),
       isUploading: true,
-      uploadProgress: datasetUploadMode === 'roboflow' ? 30 : 0,
-      uploadStatusText: datasetUploadMode === 'roboflow' ? 'Connecting to Roboflow & downloading dataset...' : 'Uploading dataset archive to server...'
+      uploadProgress: datasetUploadMode === 'roboflow' ? 2 : 0,
+      uploadStatusText: datasetUploadMode === 'roboflow' ? 'Initializing Roboflow downloader engine...' : 'Uploading dataset archive to server...'
     };
 
     setDatasets((prev) => [optimisticDataset, ...prev]);
@@ -1192,7 +1192,7 @@ dataset = version.download("coco")`
           return;
         }
 
-        const res = await fetch('/api/datasets', {
+        const res = await fetch('/api/datasets/roboflow', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1204,12 +1204,66 @@ dataset = version.download("coco")`
           })
         });
 
-        const data = await res.json();
         if (!res.ok) {
-          throw new Error(data.error || 'Failed to download dataset from Roboflow');
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to download dataset from Roboflow (HTTP ${res.status})`);
         }
 
-        setDatasets((prev) => [data, ...prev.filter((d) => d.id !== optimisticId)]);
+        if (!res.body) {
+          throw new Error('Streaming response not supported by server');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalDataset: Dataset | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const payload = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed;
+            if (!payload) continue;
+
+            try {
+              const event = JSON.parse(payload);
+              if (event.type === 'progress') {
+                setDatasets((prev) =>
+                  prev.map((d) =>
+                    d.id === optimisticId
+                      ? {
+                          ...d,
+                          uploadProgress: event.percent,
+                          uploadStatusText: event.message || d.uploadStatusText
+                        }
+                      : d
+                  )
+                );
+              } else if (event.type === 'complete' && event.dataset) {
+                finalDataset = event.dataset;
+              } else if (event.type === 'error') {
+                throw new Error(event.error || 'Failed to download dataset from Roboflow');
+              }
+            } catch (jsonErr: any) {
+              if (jsonErr.message && !jsonErr.message.includes('JSON')) {
+                throw jsonErr;
+              }
+            }
+          }
+        }
+
+        if (!finalDataset) {
+          throw new Error('Roboflow import process finished without returning dataset metadata');
+        }
+
+        setDatasets((prev) => [finalDataset!, ...prev.filter((d) => d.id !== optimisticId)]);
         await loadData();
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);
