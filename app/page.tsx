@@ -106,7 +106,7 @@ function MainApp() {
       {/* Footer */}
       <footer className="mt-auto border-t border-slate-200/60 py-6 mb-0 text-center text-xs text-slate-400 bg-white/40 w-full">
         <div className="w-full px-3 sm:px-6 xl:px-12 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p>© 2026 IRnow Workspace • Internal Office Workstation Portal</p>
+          <p>© 2026 Company Workspace • Internal Office Workstation Portal</p>
           {user && (
             <div className="flex items-center gap-4">
               <button

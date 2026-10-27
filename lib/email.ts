@@ -74,15 +74,15 @@ export async function sendEmail({
     if (env.APP_URL) {
       try {
         const host = new URL(env.APP_URL.startsWith('http') ? env.APP_URL : `https://${env.APP_URL}`).hostname;
-        from = `IRnow Workspace <no-reply@${host}>`;
+        from = `Company Workspace <no-reply@${host}>`;
       } catch {
-        from = 'IRnow Workspace <no-reply@hub.hafizimalik.com>';
+        from = 'Company Workspace <no-reply@hub.hafizimalik.com>';
       }
     } else {
-      from = 'IRnow Workspace <no-reply@hub.hafizimalik.com>';
+      from = 'Company Workspace <no-reply@hub.hafizimalik.com>';
     }
   } else if (!from.includes('<') && from.includes('@')) {
-    from = `IRnow Workspace <${from.trim()}>`;
+    from = `Company Workspace <${from.trim()}>`;
   }
 
   try {

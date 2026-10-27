@@ -307,8 +307,8 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 : authMode === 'reset-password'
                 ? 'Reset Your Password'
                 : allUsers.length === 0
-                ? 'Welcome to IRnow Workspace'
-                : 'Sign in to IRnow Workspace'}
+                ? 'Welcome to Company Workspace'
+                : 'Sign in to Company Workspace'}
             </h3>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
               {authMode === 'forgot-password'

@@ -370,7 +370,7 @@ class JobScheduler {
               if (targetUser && targetUser.email) {
                 sendEmail({
                   to: targetUser.email,
-                  subject: `[IRnow Workspace] Training Completed: ${job.name}`,
+                  subject: `[Company Workspace] Training Completed: ${job.name}`,
                   html: `
                     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
                       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
@@ -386,7 +386,7 @@ class JobScheduler {
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Best Loss:</strong> ${finalLoss.toFixed(4)}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Classes (${classes.length}):</strong> ${classes.join(', ')}</p>
                       </div>
-                      <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the IRnow Workspace workstation.</p>
+                      <p style="color: #64748b; font-size: 12px; line-height: 1.5;">You can view the full confusion matrix, predictions comparison, and download weights checkpoint directly from the Company Workspace workstation.</p>
                     </div>
                   `,
                   text: `Training completed for ${job.name}. Final accuracy: ${(finalAcc * 100).toFixed(1)}%.`
@@ -514,7 +514,7 @@ class JobScheduler {
 
         sendEmail({
           to: targetUser.email,
-          subject: `[IRnow Workspace] Training Completed: ${job.name}`,
+          subject: `[Company Workspace] Training Completed: ${job.name}`,
           html: `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
@@ -538,7 +538,7 @@ class JobScheduler {
                 </a>
               </div>
 
-              <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">You can view the full confusion matrix, validation predictions comparison, and download the weights checkpoint directly on IRnow Workspace.</p>
+              <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">You can view the full confusion matrix, validation predictions comparison, and download the weights checkpoint directly on Company Workspace.</p>
             </div>
           `,
           text: `Training completed for ${job.name}. View in workspace: ${workspaceUrl}`

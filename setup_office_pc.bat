@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
-title IRnow Workspace - Initial Office PC Setup
+title Company Workspace - Initial Office PC Setup
 color 0A
 
 cd /d "%~dp0"
 echo =====================================================================
-echo         IRnow Workspace - ONE-CLICK OFFICE PC SETUP
+echo         Company Workspace - ONE-CLICK OFFICE PC SETUP
 echo =====================================================================
 echo This script will configure Node.js and Python dependencies on this PC.
 echo.
@@ -125,7 +125,7 @@ if not exist "%~dp0..\env_hub" (
 if not exist "%~dp0..\env_hub\.env" (
     echo [*] Initializing .env in env_hub for Resend API keys...
     (
-        echo # IRnow Workspace Environment Configuration
+        echo # Company Workspace Environment Configuration
         echo # Insert your Resend API Key below for email notifications ^(Password Reset, Training Alerts^)
         echo RESEND_API_KEY=
         echo RESEND_FROM_EMAIL=no-reply@hub.hafizimalik.com

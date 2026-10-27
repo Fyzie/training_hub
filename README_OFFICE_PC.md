@@ -1,6 +1,6 @@
-# IRnow Workspace - Office PC Setup & 1-Click Run Guide
+# Company Workspace - Office PC Setup & 1-Click Run Guide
 
-This project contains everything needed to run the **IRnow Workspace** portal (Web UI, Python FastAPI telemetry/training backend, and optional Cloudflare tunnel).
+This project contains everything needed to run the **Company Workspace** portal (Web UI, Python FastAPI telemetry/training backend, and optional Cloudflare tunnel).
 
 ---
 
@@ -49,7 +49,7 @@ Double-click **`start_hub.bat`** and you are ready!
 | **`start_hub.bat`** | **Primary 1-Click Launcher** - starts all services, detects your IP, and opens the browser. |
 | **`stop_hub.bat`** | **1-Click Shutdown** - stops background services on ports 3000 and 8000 cleanly. |
 | **`setup_office_pc.bat`** | First-time configuration script for new PCs (`pip install` + `npm install` + `npm run build`). |
-| **`create_desktop_shortcut.bat`** | Adds a clickable "IRnow Workspace" shortcut directly to your Windows Desktop. |
+| **`create_desktop_shortcut.bat`** | Adds a clickable "Company Workspace" shortcut directly to your Windows Desktop. |
 | **`requirements.txt`** | List of Python dependencies for FastAPI backend. |
 | **`run_backend.py`** | Script that starts the Uvicorn FastAPI server on `0.0.0.0:8000`. |
 
@@ -70,7 +70,7 @@ Double-click **`start_hub.bat`** and you are ready!
 |---|---|
 | **[`start_hub.bat`](file:///d:/Github/hub/start_hub.bat)** | **The Main 1-Click Launcher**: Double-click this file to start the entire system! It automatically detects Python/Node, clears old ports, starts all services (Next.js, FastAPI, Cloudflare tunnel), detects your local LAN IP, and opens your browser directly to [`http://localhost:3000`](http://localhost:3000). |
 | **[`stop_hub.bat`](file:///d:/Github/hub/stop_hub.bat)** | **1-Click Shutdown**: Double-click anytime to cleanly terminate all background services on ports 3000 and 8000. |
-| **[`create_desktop_shortcut.bat`](file:///d:/Github/hub/create_desktop_shortcut.bat)** | Double-click once to place a **"IRnow Workspace"** desktop shortcut on your Windows Desktop pointing directly to `start_hub.bat`. |
+| **[`create_desktop_shortcut.bat`](file:///d:/Github/hub/create_desktop_shortcut.bat)** | Double-click once to place a **"Company Workspace"** desktop shortcut on your Windows Desktop pointing directly to `start_hub.bat`. |
 | **[`setup_office_pc.bat`](file:///d:/Github/hub/setup_office_pc.bat)** | **Initial Setup on Office PC**: When you copy the folder to your office PC, double-click this once to automatically run `pip install -r requirements.txt`, `npm install`, and `npm run build`. |
 | **[`requirements.txt`](file:///d:/Github/hub/requirements.txt)** | Python dependencies list (`fastapi`, `uvicorn`, `roboflow`, `psutil`, etc.). |
 | **[`README_OFFICE_PC.md`](file:///d:/Github/hub/README_OFFICE_PC.md)** | Step-by-step instructions for copying and running on your office PC. |
@@ -90,7 +90,7 @@ Double-click **`start_hub.bat`** and you are ready!
    The terminal window displays a live status dashboard:
    ```text
    =====================================================================
-                   IRnow Workspace - WORKSTATION PORTAL
+                   Company Workspace - WORKSTATION PORTAL
    =====================================================================
 
      [ACTIVE SERVICES]

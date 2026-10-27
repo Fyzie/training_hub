@@ -251,7 +251,7 @@ export async function GET() {
   let activeState = running;
   let tunnelType = config.tunnelType || 'cloudflare_quick';
 
-  // If a custom permanent domain is configured (e.g. https://hub.hafizimalik.com or https://hub.irnow.com.my)
+  // If a custom permanent domain is configured (e.g. https://hub.hafizimalik.com or https://hub.company.com.my)
   if (customAppUrl) {
     activeUrl = customAppUrl;
     tunnelType = 'cloudflare_named';

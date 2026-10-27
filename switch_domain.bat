@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
 
-title IRnow Workspace - Domain Switcher
+title Company Workspace - Domain Switcher
 
 echo =====================================================================
-echo                IRnow Workspace - DOMAIN CONFIGURATION TOOL
+echo                Company Workspace - DOMAIN CONFIGURATION TOOL
 echo =====================================================================
 echo.
 
@@ -42,7 +42,7 @@ set "TARGET_DOMAIN=%~1"
 if "%TARGET_DOMAIN%"=="" (
     echo Select target domain or type your custom domain:
     echo   [1] hub.hafizimalik.com
-    echo   [2] hub.irnow.com.my
+    echo   [2] hub.company.com.my
     echo   [3] Custom domain / subdomain
     echo.
     set /p "CHOICE=Enter choice [1, 2, 3 or domain name]: "
@@ -50,9 +50,9 @@ if "%TARGET_DOMAIN%"=="" (
     if "!CHOICE!"=="1" (
         set "TARGET_DOMAIN=hub.hafizimalik.com"
     ) else if "!CHOICE!"=="2" (
-        set "TARGET_DOMAIN=hub.irnow.com.my"
+        set "TARGET_DOMAIN=hub.company.com.my"
     ) else if "!CHOICE!"=="3" (
-        set /p "TARGET_DOMAIN=Enter full domain/subdomain (e.g. hub.irnow.com.my): "
+        set /p "TARGET_DOMAIN=Enter full domain/subdomain (e.g. hub.company.com.my): "
     ) else (
         set "TARGET_DOMAIN=!CHOICE!"
     )
@@ -80,7 +80,7 @@ echo       From Email: %NEW_EMAIL%
 
 :: Write to .env
 (
-    echo # IRnow Workspace Environment Configuration
+    echo # Company Workspace Environment Configuration
     echo # Auto-configured via switch_domain.bat on %DATE% %TIME%
     echo RESEND_API_KEY=%EXISTING_KEY%
     echo RESEND_FROM_EMAIL=%NEW_EMAIL%
