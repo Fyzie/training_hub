@@ -3458,7 +3458,7 @@ dataset = version.download("coco")`
                       <input
                         type="text"
                         required
-                        placeholder="e.g. Lens Defect SAHI"
+                        placeholder="e.g. PCB Components Defect SAHI"
                         value={rfdetrSegSahiForm.name}
                         onChange={(e) => setRfdetrSegSahiForm({ ...rfdetrSegSahiForm, name: e.target.value })}
                         className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-purple-500/20"
